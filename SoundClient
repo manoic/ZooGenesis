@@ -1,0 +1,602 @@
+--34GKB8495GJNNJR44FV
+
+
+
+-- Roblox character sound script
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+
+local STORAGE = ReplicatedStorage:WaitForChild("Storage")
+local MODULES = ReplicatedStorage:WaitForChild("Modules")
+
+local MovementDir = STORAGE:WaitForChild("MovementSounds")
+
+ -- wait for the first of the passed signals to fire
+local defaultSoundsFolder = MovementDir:WaitForChild("Sounds")
+local materialSounds = MovementDir:WaitForChild("MaterialSounds")
+
+local fastWait = require(MODULES:WaitForChild("FastWait"))
+
+local replicateMovementSoundEvent = ReplicatedStorage.Events:WaitForChild("REPMVMNTSND")
+
+local mPlr = Players.LocalPlayer
+
+repeat wait() until _G.GVF 
+
+local function Lerp(a, b, c)
+	return a + ((b - a) * c)
+end
+
+local function waitForFirst(...)
+	local shunt = Instance.new("BindableEvent")
+	local slots = {...}
+
+	local function fire(...)
+		for i = 1, #slots do
+			slots[i]:Disconnect()
+		end
+
+		return shunt:Fire(...)
+	end
+
+	for i = 1, #slots do
+		slots[i] = slots[i]:Connect(fire)
+	end
+
+	return shunt.Event:Wait()
+end
+
+-- map a value from one range to another
+local function map(x, inMin, inMax, outMin, outMax)
+	return (x - inMin)*(outMax - outMin)/(inMax - inMin) + outMin
+end
+--local materialSoundCounts = {
+--	[Enum.Material.Concrete] = 6;
+--	[Enum.Material.DiamondPlate] = 4;
+--	[Enum.Material.Grass] = 4;
+--	[Enum.Material.Pebble] = 3;
+--	["Ladder"] = 4;
+--	[Enum.Material.Metal] = 4;
+--	[Enum.Material.Plastic] = 4;
+--	[Enum.Material.Sand] = 4;
+--	[Enum.Material.Wood] = 4;
+--	[Enum.Material.WoodPlanks] = 4;
+--}
+
+local charSounds = {}
+
+local function playSound(sound,tPos,p)
+	local ns = sound
+	--:Clone()
+	--game.Debris:AddItem(ns,sound.TimeLength)
+
+	ns.TimePosition = tPos or 0
+	ns.Playing = true
+end
+
+local function OnLanded(rootPart,velocity,sModifier)
+	local verticalSpeed = math.abs(velocity)
+
+	--print(humanoid.Parent,verticalSpeed)
+
+	if verticalSpeed > 10 then
+		local sName = "LandHard"
+
+		local s = defaultSoundsFolder[sName]:Clone()
+		game.Debris:AddItem(s,0.5)
+		s.Parent = rootPart
+
+		local cV = math.clamp(map(verticalSpeed, 10, 80, 0.08, 0.2), 0.1, 0.5)
+		s.Volume = cV
+
+		s.Volume = s.Volume * sModifier
+
+		s.EmitterSize = s.EmitterSize * Lerp(0.5,1,sModifier)
+		s.PlaybackSpeed = Lerp(0.5,1,s.PlaybackSpeed / sModifier)
+		--if player ~= mPlr then
+		--	s.Volume = s.Volume * 3
+		--end
+		s.Playing = true
+		
+		if rootPart.Parent == mPlr.Character then
+			replicateMovementSoundEvent:FireServer("Landed",velocity)
+		end
+	end
+end
+
+local function charAdded(char)
+	local sounds = {}
+	local walkSounds = {}
+	
+	local currentWalkSound = nil
+	
+	local player = Players:GetPlayerFromCharacter(char)
+	local humanoid = char:WaitForChild("Humanoid")
+	local rootPart = char:WaitForChild("HumanoidRootPart")
+	
+	for _,v in pairs(defaultSoundsFolder:GetChildren()) do
+		local n = v:Clone()
+		n.Parent = rootPart
+		sounds[v.Name] = n
+	end
+	
+	charSounds[char] = sounds
+	
+	local con
+	con = char.AncestryChanged:Connect(function(_,parent)
+		if not parent then
+			con:Disconnect()
+			charSounds[char] = nil
+		end
+	end)
+	
+
+	local playingLoopedSounds = {}
+	local rSpeed = 0
+	local rHandling = false
+	local rCode = 0
+	local rCode2 = 0
+	local sTick = 0
+	local lTick = tick()
+	local vf = _G.GVF(char.Name)
+	
+	local isMyChar = char == mPlr.Character
+	
+	if not vf then
+		for i = 1,10 do
+			wait(0.2)
+			vf = _G.GVF(char.Name)
+			if vf then
+				break
+			end
+		end
+	end
+	
+	if not player and not char:GetAttribute("IsAI") then
+		 return
+	end
+	
+	if not vf then
+		return
+	end
+	
+	local function SModifier()
+		return vf.MovementSoundModifier.Value
+	end
+
+	local function stopPlayingLoopedSounds(except)
+		for sound in pairs(playingLoopedSounds) do
+			if sound ~= except then
+				sound.Playing = false
+				playingLoopedSounds[sound] = nil
+			end
+		end
+	end
+
+
+	local function stopSound(sound)
+		sound.Playing = false
+		sound.TimePosition = 0
+	end
+
+
+
+	-- state transition callbacks
+	local stateTransitions = {
+		[Enum.HumanoidStateType.FallingDown] = function()
+			stopPlayingLoopedSounds()
+		end,
+
+		[Enum.HumanoidStateType.GettingUp] = function()
+			stopPlayingLoopedSounds()
+			playSound(sounds.GettingUp,nil,rootPart)
+		end,
+
+		[Enum.HumanoidStateType.Jumping] = function()
+			if isMyChar then
+				stopPlayingLoopedSounds()
+				if rootPart.Parent.Torso.Transparency < 1 then
+					playSound(sounds.Jumping,0.15,rootPart)
+
+					if rootPart.Parent == mPlr.Character then
+						replicateMovementSoundEvent:FireServer("Jumping")
+					end
+				end
+			end
+		
+		end,
+
+		[Enum.HumanoidStateType.Swimming] = function()
+			local verticalSpeed = math.abs(rootPart.Velocity.Y)
+			if verticalSpeed > 0.1 and rootPart.Parent.Torso.Transparency < 1 then
+				local s = sounds["Splash" .. math.random(1,3)]:Clone()	
+				game.Debris:AddItem(s,2)
+				s.Parent = rootPart
+				s.Volume = math.clamp(map(verticalSpeed, 100, 350, 0.28, 1), 0, 1)
+				playSound(s,nil,rootPart)
+
+				if verticalSpeed > 15 then
+					local p = script.SplashPart:Clone()
+						p.CFrame = rootPart.CFrame
+					p.Parent = workspace.Debris
+					game.Debris:AddItem(p,2)
+					p.SplashParticle:Emit(75)
+				end
+			end
+			stopPlayingLoopedSounds(sounds.Swimming)
+			
+			sounds.Swimming.Playing = true
+			playingLoopedSounds[sounds.Swimming] = true
+		end,
+
+		[Enum.HumanoidStateType.Freefall] = function()
+			sounds.FreeFalling.Volume = 0
+			stopPlayingLoopedSounds(sounds.FreeFalling)
+			playingLoopedSounds[sounds.FreeFalling] = true
+		end,
+
+		[Enum.HumanoidStateType.Landed] = function()
+			if isMyChar then
+				stopPlayingLoopedSounds()
+
+				if rootPart.Parent.Torso.Transparency < 1  then			
+					OnLanded(rootPart,rootPart.Velocity.Y,SModifier())
+				end
+			end	
+		end,
+
+		[Enum.HumanoidStateType.Running] = function()
+--			stopPlayingLoopedSounds(sounds.Running)
+--			sounds.Running.Playing = true
+--			playingLoopedSounds[sounds.Running] = true
+		end,
+
+		--[Enum.HumanoidStateType.Climbing] = function()
+		--	local sound = sounds.Climbing
+		--	if math.abs(rootPart.Velocity.Y) > 0.1 or math.abs(rootPart.Velocity.Y) < -0.1 then
+		--		sound.Playing = true
+		--		stopPlayingLoopedSounds(sound)
+		--	else
+		--		stopPlayingLoopedSounds()
+		--	end
+		--	playingLoopedSounds[sound] = true
+		--end,
+
+		[Enum.HumanoidStateType.Seated] = function()
+			stopPlayingLoopedSounds()
+		end,
+
+		[Enum.HumanoidStateType.Dead] = function()
+			--stopPlayingLoopedSounds()
+			--playSound(sounds.Died)
+		end,
+	}
+	
+	local function getWS()
+		local ws = math.min((mPlr.Character == char and humanoid.WalkSpeed) or vf.RepWalkSpeed.Value,50)
+		local ws2 = math.min(rootPart.Velocity.Magnitude,ws)
+		return (ws + ws2) / 2
+	end
+
+
+	local function onRunning(s)
+		rSpeed = s
+		
+		local code = math.random()
+		rCode2 = code
+
+		if (rSpeed < 1 and rSpeed > -1) or (char:FindFirstChild("Torso") and char.Torso.Transparency >= 1) then
+			rCode = math.random();rHandling = false sTick = tick()
+			return
+		end
+		
+		if rootPart.Anchored then return end
+		if rHandling then return end
+		
+		local function CalcSpeed()
+			--local n = rSpeed
+			--if n < 0 then
+			--	n = -n
+			--end
+			--local x = 6.5 / n
+			
+			--x = math.min(x,0.75)
+			--return x
+			
+			local ws = getWS()
+
+			return (((1/60)*20)/(ws/16))*1.1
+		end
+		
+		rCode = math.random()
+		local sTick2 = tick()
+ 		rHandling = true
+		local cCode = rCode
+		
+		local function sTing(n,x)
+			if n and materialSounds:FindFirstChild(n) then
+				local s = materialSounds[n]:GetChildren()[math.random(1,#materialSounds[n]:GetChildren())]:Clone()
+				
+				local s2
+				
+				if vf.Currents:FindFirstChild("RBTMVB_S") then
+					s2 = sounds.RStep:Clone()
+					s2.Pitch = s2.Pitch * math.random(90,110) / 100	
+				end
+				
+				s.Pitch = s.Pitch * math.random(90,110) / 100
+				--if player ~= mPlr then
+				--	s.Volume = s.Volume * 3
+					
+				--	s.EmitterSize = s.EmitterSize * 1.35
+					
+				--	if s2 then
+				--		s2.Volume = s2.Volume * 3
+				--		s2.EmitterSize = s2.EmitterSize * 1.35
+				--	end
+					
+				local ws = getWS()
+				
+				s.EmitterSize = s.EmitterSize * 1.65
+				
+				if not isMyChar then
+					s.EmitterSize *= 1.3
+					s.Volume *= 2.5
+					s.RollOffMaxDistance *= 1.25
+				end
+				
+				if rSpeed >= 23 or vf.Sprinting.Value then
+					local dist = Instance.new("DistortionSoundEffect")
+					dist.Level = 0.34
+					dist.Priority = 2
+					dist.Parent = s
+					--s.Volume = s.Volume * 1.25
+					s.EmitterSize = s.EmitterSize * 1.25
+					
+					if s2 then
+						s2.Volume = s2.Volume * 1.5
+						s2.EmitterSize = s2.EmitterSize * 1.25
+					end
+				end
+				
+				if vf.Crouching.Value then
+					s.EmitterSize = s.EmitterSize * 0.2
+					s.Volume = s.Volume * 0.15
+					
+					if s2 then
+						s2.EmitterSize *= 0.5
+						s2.Volume *= 0.5
+					end
+				end
+				
+				local m = SModifier()
+				
+				if m > 0 then
+					local dist = Instance.new("DistortionSoundEffect")
+					dist.Level = Lerp(0,0.35,m)
+					dist.Priority = 1
+					dist.Parent = s
+				end
+				
+				s.Volume = s.Volume * m
+				s.EmitterSize = s.EmitterSize * Lerp(0.85,1,m)
+				s.PlaybackSpeed = Lerp(0.5,1,s.PlaybackSpeed / m)
+				
+				--print(s.Volume,s.EmitterSize,s.PlaybackSpeed)
+				
+				s.Parent = (mPlr == player and _G.FP and workspace.CurrentCamera) or rootPart
+				
+				s:Play()
+				
+				game.Debris:AddItem(s,0.5)	
+				
+				if s2 then
+					s2.Parent = (mPlr == player and _G.FP and workspace.CurrentCamera) or rootPart
+					s2:Play()
+					game.Debris:AddItem(s2,0.5)
+				end
+			end
+		end
+		
+		while rHandling and cCode == rCode and humanoid.Parent and char.Parent and vf and vf.Parent do
+			if not (vf and vf.Parent) then break end
+			
+			local rg = false
+
+			if vf and vf.Parent then
+				if vf.RagdollTime.RagdollSwitch.Value then
+					rg = true
+				end
+			end
+			
+			local state = humanoid:GetState()
+			
+			if rg or tick() - sTick < 0.1 or (rSpeed < 1 and rSpeed > -1) or (state == Enum.HumanoidStateType.Climbing and tick() - sTick2 < 0.15) then
+				--fastWait(0.1)
+			elseif tick() - lTick >= CalcSpeed() then
+				lTick = tick()
+				local list = {
+					Concrete =		"Concrete";
+					Slate = 		"Granite";
+					Brick = 		"Concrete";	
+					Cobblestone =	"Concrete";
+					Marble = 		"Granite";
+					Pebble = 		"Concrete";
+					Plastic = 		"Concrete";
+					SmoothPlastic = "Concrete";
+					Rock =			"Concrete";
+					
+					
+					Pavement =		"Granite";	
+					Salt = 			"Granite";
+					Granite = 		"Granite";
+					Limestone =		"Granite";
+					Sandstone =  	"Granite";
+					CrackedLava = 	"Granite";
+					Basalt = 		"Granite";
+					Asphalt = 		"Granite";
+					Glacier =		"Granite";
+					
+					Wood =			"Wood";
+					WoodPlanks =	"Wood";
+					
+					Sand = 			"Sand";
+					
+					Snow = 			"Sand";
+					
+					Ice = 			"Sand";
+					Fabric = 		"Fabric";
+					
+					Grass = 		"Grass";
+					Mud = 			"Grass";
+					LeafyGrass = 	"Grass";
+					Ground =		"Grass";
+					
+					Glass = 		"Glass";
+					
+					Metal = 		"Metal";
+					DiamondPlate =	"Metal";
+					Neon =			"Metal";
+					
+				}
+				
+				if state == Enum.HumanoidStateType.Climbing then
+					sTing("Ladder")
+				else
+					local floorMaterial = humanoid.FloorMaterial
+					if floorMaterial and floorMaterial ~= Enum.Material.Air then
+						local fM2 = string.sub(tostring(floorMaterial),15,string.len(tostring(floorMaterial)))
+						
+						local v =list[fM2] 
+						if not v  then
+							v = list.Concrete
+						end
+						sTing(v)
+					else
+						--print(floorMaterial)
+					end
+				end
+				--fastWait(CalcSpeed())
+				--if not rHandling or not rCode == cCode then break end
+			end
+			
+			fastWait(0.05)
+		end
+	end
+	-- updaters for looped sounds
+	local loopedSoundUpdaters = {
+		[sounds.Climbing] = function(dt, sound, vel)
+			sound.Playing = vel.Magnitude > 0.1
+		end,
+
+		[sounds.FreeFalling] = function(dt, sound, vel)
+			if vel.Magnitude > 55 then
+				sound.Volume = math.clamp(sound.Volume + 0.9*dt, 0, 3)
+			else
+				sound.Volume = 0
+			end
+		end,
+
+		[sounds.Running] = function(dt, sound, vel)
+			sound.Playing = vel.Magnitude > 0.5 and humanoid.MoveDirection.Magnitude > 0.5
+		end,
+	}
+
+	-- state substitutions to avoid duplicating entries in the state table
+	local stateRemap = {
+		[Enum.HumanoidStateType.RunningNoPhysics] = Enum.HumanoidStateType.Running,
+	}
+
+	local activeState = stateRemap[humanoid:GetState()] or humanoid:GetState()
+	local activeConnections = {}
+
+	local stateChangedConn = humanoid.StateChanged:Connect(function(_, state)
+		state = stateRemap[state] or state
+
+		if state ~= activeState then
+			local transitionFunc = stateTransitions[state]
+			if transitionFunc then
+				transitionFunc()
+			end
+
+			activeState = state
+		end
+	end)
+
+	local steppedConn = RunService.Stepped:Connect(function(_, worldDt)
+		-- update looped sounds on stepped
+		for sound in pairs(playingLoopedSounds) do
+			local updater = loopedSoundUpdaters[sound]
+
+			if updater then
+				updater(worldDt, sound, rootPart.Velocity)
+			end
+		end
+	end)
+
+	local humanoidAncestryChangedConn
+	local rootPartAncestryChangedConn
+	local characterAddedConn
+
+	local function terminate()
+		stateChangedConn:Disconnect()
+		steppedConn:Disconnect()
+		humanoidAncestryChangedConn:Disconnect()
+		rootPartAncestryChangedConn:Disconnect()
+		characterAddedConn:Disconnect()
+	end
+
+	humanoidAncestryChangedConn = humanoid.AncestryChanged:Connect(function(_, parent)
+		if not parent then
+			terminate()
+		end
+	end)
+	
+	humanoid.Running:Connect(onRunning)
+	humanoid.Climbing:Connect(onRunning)
+
+	rootPartAncestryChangedConn = rootPart.AncestryChanged:Connect(function(_, parent)
+		if not parent then
+			terminate()
+		end
+	end)
+
+	characterAddedConn = char.AncestryChanged:Connect(function(_,parent)
+		if not parent then
+			terminate()
+		end
+	end)
+end
+
+local charsF = workspace:WaitForChild("Characters")
+
+charsF.ChildAdded:Connect(charAdded)
+for _,v in pairs(charsF:GetChildren()) do
+	charAdded(v)
+end
+
+replicateMovementSoundEvent.OnClientEvent:Connect(function(char,soundName,customVel)
+	if not char and char.Parent then return end
+	local rootPart = char:FindFirstChild("HumanoidRootPart")
+	if not rootPart then return end
+	if not charSounds[char] then return end
+	
+	local t = nil
+	
+	if soundName == "Jumping" then
+		t = 0.15
+	end
+	
+	if soundName == "Landed" then
+		local vf = _G.GVF(char.Name)
+		
+		if vf then
+			OnLanded(rootPart,customVel,vf.MovementSoundModifier.Value)
+		end
+	else
+		playSound(charSounds[char][soundName],t,rootPart)
+	end
+end)
