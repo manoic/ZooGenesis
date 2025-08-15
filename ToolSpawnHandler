@@ -1,0 +1,2012 @@
+local _ = {}
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = 	game:GetService("ServerStorage")
+local RunService = game:GetService("RunService")
+local PhysicsService = game:GetService("PhysicsService")
+
+local config = {
+	MinSpawnDist = 9; -- 12
+	DespawnTime = 1200; -- 1200
+	
+	CoolDownTime_Tool = 1;
+	CoolDownTime_Scrap = 1;
+	
+	--CashChance = 3; -- 1/Number (removed)
+	--MinCashDrop = 50;
+	--MaxCashDrop = 125;
+	
+	MaxScrapDrops = 100;
+	MaxCrateDrops = 30; -- 100
+	
+	MinSpawnPerc = 4;
+	MinimumPlayersPerc = 0.1;
+	
+	
+	PresentPerc = 10;
+	
+	SpawnInterval = 10; -- 10
+	
+	NewDropMode = true;
+	
+	SpawnAll = RunService:IsStudio();
+	
+	NewSpawnSystem = true; -- new client only system
+		ReplicateInterval = 2; -- 2
+		ReplicateRadius = 200; -- 200
+	
+	GoldScraps = {
+		MinPlayers = 25;
+		NoCasual = true;
+		
+		AlwaysStudio = true;
+	};
+	
+	AutoPickupScraps = false; -- when searched, if enough inv space auto put it in ur inv
+	
+	Debug = false and RunService:IsStudio();
+}
+
+local toolSpawnsDir = workspace.Filter.ToolSpawns
+local spawnedPilesDir = workspace.Filter.SpawnedPiles
+local spawnedToolsDir = workspace.Filter.SpawnedTools
+
+local scrapStuffDir = ReplicatedStorage.Storage.ScrapStuff
+local tools2SpawnDir = scrapStuffDir.SpawnerTools
+
+local modulesDir = ReplicatedStorage.Modules
+local eventsDir = ReplicatedStorage.Events
+local eventsDir3 = ServerStorage.Events3
+
+local RR3 = require(modulesDir.RotatedRegion3)
+local GunOffsetsM = require(ServerStorage.Modules.Other.GunModelOffsets)
+
+local pickupScrapEvent = eventsDir.PIC_PU
+local pickupClipperEvent = eventsDir.PIC_CI
+local pickupToolEvent = eventsDir.PIC_TLO
+
+local SkinsHandlerM = require(script.Parent.SkinsHandler)
+
+local scrapInfoEvent = eventsDir.SCRZPAPAPA
+
+local scrapTables = {};
+local crateTables = {};
+
+--local chancesTable = require(script:WaitForChild("Configs")) -- white scrap
+--local chancesTable2 = require(script:WaitForChild("Configs2")) -- green scrap
+--local chancesTable3 = require(script:WaitForChild("Configs3")) -- red scrap
+--local chancesTable4 = require(script:WaitForChild("Configs4")) -- gold scrap
+--local chancesTable5 = require(script:WaitForChild("ConfigsP")) -- present scrap?
+--local WeightedChances = {}
+--local WeightedChances2 = {}
+--local WeightedChances3 = {}
+--local WeightedChances4 = {}
+--local WeightedChances5 = {}
+
+local activeScraps = {}
+local playerScrapData = {}
+
+local activeTools = {}
+local coolDowns1 = {}
+local coolDowns2 = {}
+local spams = {}
+
+local function Lerp(a, b, c)
+	return a + ((b - a) * c)
+end
+
+
+local function canGoldScrap()
+	if RunService:IsStudio() and config.GoldScraps.AlwaysStudio then
+		return true
+	end
+	
+	if #Players:GetPlayers() < config.GoldScraps.MinPlayers or (ReplicatedStorage.Values.GameMode.Value == "Casual" or ReplicatedStorage.Values.GameMode.Value == "M-Casual") then
+	--	warn("No gold scraps")
+		return false
+	end
+	return true
+end
+
+function GetSpawnPos(mode,doCount)
+	local sPart = toolSpawnsDir:GetChildren()[math.random(1,#toolSpawnsDir:GetChildren())]
+	local region = RR3.FromPart(sPart)
+	
+	doCount = doCount or 0
+	
+	if string.find(sPart.Name,"SECRT") and not canGoldScrap() then
+		return GetSpawnPos(mode,doCount)
+	elseif not ServerStorage.Values.LegacyScrapTableSystem and (mode == 1  and (string.find(sPart.Name,"SECRT") or string.find(sPart.Name,"VIBE"))) then
+		return GetSpawnPos(mode,doCount)
+	end
+	
+	--local function RandomPositionInReg3(region3)
+	--	local function getRandomInBounds(n)
+	--		return math.random(-n, n)
+	--	end
+		
+	--	local x = getRandomInBounds(region3.Size.X / 2)
+	--	local y = getRandomInBounds(region3.Size.Y / 2)
+	--	local z = getRandomInBounds(region3.Size.Z / 2)
+		
+	--	return region3.CFrame + Vector3.new(x,y,z)
+	--end
+	
+	local function getRandomInPart(part)
+		local random = Random.new()
+		local randomCFrame = part.CFrame * CFrame.new(random:NextNumber(-part.Size.X/2.2,part.Size.X/2.2), random:NextNumber(-part.Size.Y/2.2,part.Size.Y/2.2), random:NextNumber(-part.Size.Z/2.2,part.Size.Z/2.2))
+		return randomCFrame
+	end
+	
+	local finalCF
+	
+	for i = 1,20 do
+		local g = true
+		--local gCF = RandomPositionInReg3(region)
+		local gCF = getRandomInPart(sPart)
+		
+		for _,x in pairs(activeScraps) do
+			--local v = x[1]
+			if x.cf then
+				local mag = (x.cf.Position - gCF.p).Magnitude
+				if mag <= config.MinSpawnDist then
+					g = false
+				end
+			end
+		end
+		
+		if g then
+			finalCF = gCF 
+			break
+		end
+		
+		doCount +=1
+	end
+	
+	if not finalCF then
+		if doCount < 50 then
+			return GetSpawnPos(mode,doCount)
+		else
+			return nil
+		end
+		
+	else
+		return sPart,finalCF
+	end
+end
+
+function GetItemStatFromTool(t)
+	for _,v in pairs(ReplicatedStorage.Storage.ItemStats:GetChildren()) do
+		if v:FindFirstChild(t) then
+			return v[t]
+		end
+	end
+end
+
+function GetTool(gotN,rarity,c)
+	local cho
+	local cho2
+
+	if gotN then
+		local m = scrapTables[gotN]
+		
+		local itemsTable,weightedChances = m[1],m[2]
+		
+		if itemsTable.ItemsTable then
+			itemsTable = itemsTable.ItemsTable
+		end
+		
+		local t = weightedChances[math.random(1, #weightedChances)]
+		
+		if not (c and c >= 50) and t and ServerStorage.Values.DisableGuns.Value and ReplicatedStorage.Storage.ItemStats.Guns:FindFirstChild(t) then
+			warn("DisableGuns Value true, skipped:",t)
+			
+			if not c then
+				c = 0
+			end
+			
+			c += 1
+			return GetTool(gotN,rarity,c)
+		end
+		
+		local gItemTable = itemsTable[t]
+		
+		local weight = gItemTable.Weight or 0
+		
+		local iStats = GetItemStatFromTool(t)
+		
+		if iStats then
+			local slots = gItemTable.CustomSlotUsage or iStats.SlotUsage.Value
+
+			--if not (stats.IsHelmet and _G.SMains.IsArmored(plr.Character,"Head")) then
+			--if vF.InventorySlots.Value + slots < vF.InventorySlots.MaxValue then
+			return {t,rarity,gItemTable.HExplode,gItemTable.IsVest or gItemTable.IsHelmet,slots,iStats,gItemTable.IsGun,gotN},weight,gItemTable.MaxDrops
+			--end
+			--end
+		elseif config.Debug then
+			warn("No iStats for:",tostring(t))
+		end
+	end
+end
+
+function ReplicateNewScrapData(scrapId,player,gotPresent)
+	local t = activeScraps[scrapId]
+	if not t then return end
+	
+	if not table.find(playerScrapData[player][2],scrapId) then
+		table.insert(playerScrapData[player][2],scrapId)
+		
+		scrapInfoEvent:FireClient(player,"add",t.clientdata,config.DespawnTime,gotPresent)
+		
+		--warn("replicated",scrapId,"to",player.Name)
+	end
+end
+
+function Attempt_ReplicateNewScrapData(scrapId,player,gotPresent)
+	local t = activeScraps[scrapId]
+	if not t then return end
+	
+	if not table.find(playerScrapData[player][2],scrapId) then
+		local char = player.Character
+		if char then
+			if _G.RAC_CHECK and not _G.RAC_CHECK("89RWE89SDFJWEP[O2398",player) then return end
+			
+			ReplicateNewScrapData(scrapId,player,gotPresent)
+		end
+	end
+end
+
+function TryReplicateScrap(player,d,root,scrapId,gotPresent)
+	local v1 = activeScraps[scrapId]
+	if not v1 then return end
+	
+	if not root then return end
+	
+	if v1.active == true and not table.find(d[2],scrapId) then
+		local mag = (v1.cf.p - root.Position).Magnitude 
+
+		--print(scrapId,mag)
+
+		if mag < (v1.customReplicateRadius or config.ReplicateRadius) then
+			--print("ON GOD YEAH",player)
+			Attempt_ReplicateNewScrapData(scrapId,player,gotPresent)
+		end	
+	end
+end
+
+function DoPlayerReplicate(player)
+	local d = playerScrapData[player]
+	
+	if time() - d[1] < config.ReplicateInterval - 0.1 then return end
+	
+	playerScrapData[player][1] = time()
+	
+	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	
+	if not root then return end
+	
+	for i1,v1 in pairs(activeScraps) do
+		TryReplicateScrap(player,d,root,i1)
+	end
+end
+
+function ClearScrapData(scrapId,isCrateBreak)
+	local t = activeScraps[scrapId]
+	if not t then return end
+	
+	scrapInfoEvent:FireAllClients("remove",t.clientdata,isCrateBreak)
+	
+	--warn("removing",scrapId)
+	
+	if t.model and t.model.Parent then
+		t.model:Destroy()
+	end
+	
+	for i,v in pairs(playerScrapData) do
+		local f = table.find(v[2],scrapId)
+		if f then
+			table.remove(v[2],f)
+			
+			playerScrapData[i] = v
+		end
+	end
+	
+	activeScraps[scrapId] = nil
+end
+
+function NewPlayer(player)
+	if playerScrapData[player] then return end
+	
+	if not (player and player.Parent) then return end
+	
+	playerScrapData[player] = {
+		[1] = 0;
+		[2] = {};
+	}
+	
+	player.CharacterAdded:Connect(function(char)
+		wait(0.5)
+		if char and char.Parent then
+			DoPlayerReplicate(player)
+		end
+	end)
+end
+
+function LeavingPlayer(player)
+	playerScrapData[player] = nil
+end
+
+_.NewPlayer = NewPlayer
+_.LeavingPlayer = LeavingPlayer
+
+
+function SpawnScrap()
+	local part,pos = GetSpawnPos(1)
+	
+	if not (part and pos) and config.Debug then
+		warn("Failed to get spawnpos?")
+		return nil
+	end
+	
+	local spawnCF = pos * CFrame.fromEulerAnglesXYZ(0,math.rad(math.random(-180,180)),0)
+	
+	if config.Debug then
+		--warn("SpawnScrap",part,pos)
+	end
+	
+	local rarity = 1
+	local gotN = "ScrapConfig_Main"
+	
+	if ServerStorage.Values.LegacyScrapTableSystem.Value then
+		gotN = "ScrapConfig_White"
+		rarity = 1
+		
+		if part then
+			if string.find(part.Name,"SECRT") then
+				rarity = 4
+				gotN = "ScrapConfig_Gold"
+			elseif string.find(part.Name,"VIBE") then
+				gotN = "ScrapConfig_Red"
+				rarity = 3
+			elseif string.find(part.Name,"SEWER") then
+				gotN = "ScrapConfig_Green"
+				rarity = 2
+			else
+				gotN = "ScrapConfig_White"
+				rarity = 1
+			end
+		end
+	end
+	
+	if config.NewSpawnSystem then
+		local chosenToolData = GetTool(gotN,rarity)
+		
+		if chosenToolData then
+			local id = tostring(math.floor(math.random() * 100000000))
+			
+			local color = Color3.new(1,1,1)
+			
+			if ServerStorage.Values.LegacyScrapTableSystem.Value then
+				
+				if rarity == 3 then
+					color = Color3.fromRGB(255,47,47)
+				elseif rarity == 4 then
+					color = Color3.fromRGB(255, 170, 0)
+				elseif rarity == 2 then
+					color = Color3.fromRGB(47,255,102)
+				else
+					color = Color3.new(1,1,1)
+				end
+			end
+			
+			local PresentChance = _G.PresentSpawnChance
+			local GotPresent = false
+			
+			if PresentChance <= 1 then
+				GotPresent = true
+			else
+				PresentChance = math.floor(_G.KilltrackChance)
+				
+				if math.random(PresentChance) == 1 then
+					GotPresent = true
+				end
+			end
+			
+			if GotPresent then
+				color = Color3.fromRGB(255,47,47)
+				chosenToolData = GetTool("PresentConfig_Main", 1)
+			end
+			
+			local t = {
+				model = nil;
+				cf = spawnCF;
+				color = color;
+				data = {chosenToolData};
+
+				id = id;
+				active = true;
+			}
+
+			local clientdata = {}
+			clientdata[1] = t.id
+			clientdata[2] = t.cf
+			clientdata[3] = t.color
+
+			t.clientdata = clientdata
+
+			delay(config.DespawnTime,function()
+				ClearScrapData(id)
+			end)
+
+			activeScraps[id] = t
+
+			for i,v in pairs(playerScrapData) do
+				TryReplicateScrap(i,v,i and i.Character and i.Character:FindFirstChild("HumanoidRootPart"),id,GotPresent)
+			end
+			
+			if config.Debug then
+				--warn("Spawning scrap:",chosenToolData[1])
+			end
+
+			--warn("created new scrap",id)
+		elseif config.Debug then 
+			warn("Failed to get chosenToolData?")
+		end
+	else
+		local n = "S" .. math.random(1,2)
+		
+		local tM = tools2SpawnDir[n]:Clone()
+
+		local pP = tM.PrimaryPart
+		pP.CFrame = spawnCF
+
+		local particle = scrapStuffDir.Particle:Clone()
+
+		local v = Instance.new("ObjectValue")
+		v.Name = "Spawner"
+		v.Value = part
+		v.Parent = pP
+
+		tM.Name = part.Name
+		particle.Color = ColorSequence.new(Color3.new(1,1,1))
+
+		pP.AncestryChanged:Connect(function(_,parent)
+			RunService.Heartbeat:Wait()
+			if not parent then
+				tM:Destroy()
+			end
+		end)
+
+		delay(config.DespawnTime,function()
+			tM:Destroy()
+		end)
+
+		particle.Parent = pP
+		particle.Enabled = true
+
+		local chosenToolData = GetTool(gotN,rarity)
+		
+		local id = tostring(math.floor(math.random() * 100000000))
+		
+		local t = {
+			model = tM;
+			cf = spawnCF;
+			color = Color3.new(1,1,1);
+			data = {chosenToolData};
+
+			id = id;
+			active = true;
+		}
+
+		activeScraps[tM] = t
+
+		local CON
+		--	CON = pP.AncestryChanged:Connect(function(_,parent)
+		--		if not parent then
+		--			CON:Disconnect()
+		--			delay(30,function()
+		--				pcall(function() tM:Destroy() end)
+		--				SpawnScrap()
+		--			end)
+		--		end
+		--	end)
+		
+		tM:SetAttribute("jzu",string.reverse(id))
+		
+		tM.Parent = spawnedPilesDir
+
+		for _,v in pairs(tM:GetDescendants()) do
+			if v:IsA("BasePart") then
+				v.CollisionGroupId = PhysicsService:GetCollisionGroupId(_G.CG_NCC)
+
+				if v:CanSetNetworkOwnership() then
+					v:SetNetworkOwner(nil)
+				end
+			end
+		end
+
+		pP:SetNetworkOwner(nil)
+
+		delay(2,function()
+			if pP and pP.Parent then
+				repeat wait(1) until not pP.Parent or pP.Velocity.Magnitude <= 0.1
+				--print("hahaha")
+
+				if pP and pP.Parent then
+					for _,v in pairs(tM:GetDescendants()) do
+						if v:IsA("BasePart") then
+							v.Anchored = true
+							v.CanCollide = false
+							v.CanTouch = false
+						end
+					end
+				end
+			end
+		end)
+	end
+end
+
+function SpawnCrate(spawnCF,rarity,gotN,isLocked,part,customReplicateRadius,customDespawnTime,noSellPrice,customOpenTime)
+	if config.NewSpawnSystem then
+		
+		local toolDataTable = {}
+		local color
+		local remainingWeight = 100
+		
+		local gotToolNames = {}
+		
+		if gotN and scrapTables[gotN] then
+			local maxDrops = scrapTables[gotN][1].MaxItems
+			local reRollRate = scrapTables[gotN][1].ReRollRate
+			if not reRollRate then
+				reRollRate = math.floor(maxDrops * 3.5) 
+			end
+			
+			for _ = 1,maxDrops do
+				for _ = 1,reRollRate do
+					local chosenToolData,gotWeight,maxDrops = GetTool(gotN,rarity)
+					if chosenToolData then
+						gotWeight = gotWeight or 0
+						local calc = remainingWeight - gotWeight
+						
+						if not gotToolNames[chosenToolData[1]] then
+							gotToolNames[chosenToolData[1]] = 0
+						end
+
+						if calc >= 0 then
+							if gotToolNames[chosenToolData[1]] < (maxDrops or 1000) then
+								gotToolNames[chosenToolData[1]] += 1
+								
+								remainingWeight -= gotWeight
+								local rarity = chosenToolData[2]
+								color = Color3.fromRGB(47,255,102)
+								if rarity == 2 then
+									color = Color3.fromRGB(255,47,47)
+								elseif rarity == 3 or rarity == "4J" then
+									color = Color3.fromRGB(255, 170, 0)
+								elseif rarity == 4 then
+									
+								end
+
+								table.insert(toolDataTable,chosenToolData)
+							end
+						end
+
+						break
+					end
+				end
+			end
+			
+			if not customOpenTime then
+				if rarity == 1 then
+					customOpenTime = 4
+				elseif rarity == 2 then
+					customOpenTime = 7
+				elseif rarity == 3 or rarity == "4J" then
+					customOpenTime = 10
+				end
+			end
+
+			if #toolDataTable > 0 then
+				local id = tostring(math.floor(math.random() * 100000000))
+
+				local t = {
+					model = nil;
+					cf = spawnCF;
+					color = color;
+					data = toolDataTable;
+
+					id = id;
+					active = true;
+					
+					rarity = rarity;
+					isCrate = true;
+					isLocked = isLocked;
+				}
+				
+				t.NoSellPrice = noSellPrice
+				
+				if customReplicateRadius then
+					t.customReplicateRadius = customReplicateRadius
+				else
+					t.customReplicateRadius = config.ReplicateRadius * 1.25
+				end
+
+				local clientdata = {}
+				clientdata[1] = t.id
+				clientdata[2] = t.cf
+				clientdata[3] = t.color
+				clientdata[4] = rarity
+				clientdata[5] = isLocked
+				clientdata[6] = customOpenTime
+
+				t.clientdata = clientdata
+				
+				local despawnTime = (typeof(customDespawnTime) == "number" and customDespawnTime) or config.DespawnTime
+
+				delay(despawnTime,function()
+					ClearScrapData(id)
+				end)
+
+				activeScraps[id] = t
+
+				for i,v in pairs(playerScrapData) do
+					TryReplicateScrap(i,v,i and i.Character and i.Character:FindFirstChild("HumanoidRootPart"),id)
+				end
+
+				if config.Debug and #toolDataTable > 0 then
+					--warn("Spawning crate:",toolDataTable[1][1])
+				end
+				
+				return t
+
+				--warn("created new scrap",id)
+			elseif config.Debug then 
+				warn("Failed to get chosenToolData?")
+			end
+		elseif config.Debug then
+			warn("No gotN found for:",gotN)
+		end
+	else
+		local n = "S" .. math.random(1,2)
+		
+		local tM = tools2SpawnDir[n]:Clone()
+
+		local pP = tM.PrimaryPart
+		pP.CFrame = spawnCF
+
+		local particle = scrapStuffDir.Particle:Clone()
+
+		local v = Instance.new("ObjectValue")
+		v.Name = "Spawner"
+		v.Value = part
+		v.Parent = pP
+
+		tM.Name = part.Name
+
+		particle.Color = ColorSequence.new(Color3.new(1,1,1))
+
+		pP.AncestryChanged:Connect(function(_,parent)
+			RunService.Heartbeat:Wait()
+			if not parent then
+				tM:Destroy()
+			end
+		end)
+
+		delay(config.DespawnTime,function()
+			tM:Destroy()
+		end)
+
+		particle.Parent = pP
+		particle.Enabled = true
+
+		local chosenToolData = GetTool(gotN,rarity)
+
+		local id = tostring(math.floor(math.random() * 100000000))
+
+		local t = {
+			model = tM;
+			cf = spawnCF;
+			color = Color3.new(1,1,1);
+			data = {chosenToolData};
+
+			id = id;
+			active = true;
+			rarity = rarity;
+			
+			isCrate = true;
+			isLocked = isLocked;
+		}
+
+		activeScraps[tM] = t
+
+		tM:SetAttribute("jzu",string.reverse(id))
+
+		tM.Parent = spawnedPilesDir
+
+		for _,v in pairs(tM:GetDescendants()) do
+			if v:IsA("BasePart") then
+				v.CollisionGroupId = PhysicsService:GetCollisionGroupId(_G.CG_NCC)
+
+				if v:CanSetNetworkOwnership() then
+					v:SetNetworkOwner(nil)
+				end
+			end
+		end
+
+		pP:SetNetworkOwner(nil)
+
+		delay(2,function()
+			if pP and pP.Parent then
+				repeat wait(1) until not pP.Parent or pP.Velocity.Magnitude <= 0.1
+				--print("hahaha")
+
+				if pP and pP.Parent then
+					for _,v in pairs(tM:GetDescendants()) do
+						if v:IsA("BasePart") then
+							v.Anchored = true
+							v.CanCollide = false
+							v.CanTouch = false
+						end
+					end
+				end
+			end
+		end)
+		
+		return tM
+	end
+end
+
+function MainCrateSpawnerFunc()
+	local part,pos = GetSpawnPos(2)
+
+	if not (part and pos) and config.Debug then
+		warn("Failed to get spawnpos?")
+		return nil
+	end
+
+	local spawnCF = pos * CFrame.fromEulerAnglesXYZ(0,math.rad(math.random(-180,180)),0)
+
+	if config.Debug then
+		--warn("SpawnScrap",part,pos)
+	end
+
+	local rarity = 1
+	local gotN = ""
+	local isLocked = nil
+	local customOpenTime = 4
+
+	--if part and part:FindFirstChild("HL") and part.HL.Value then
+	--	gotN = "ScrapConfig_Hallows"
+
+	--	rarity = 3
+	--	isLocked = true
+	--else
+	
+	local doRandomRareCrate = not ServerStorage.Values.LegacyScrapTableSystem.Value and string.find(string.lower(ReplicatedStorage.Values.GameMode.Value),"standard") and  math.random(1,50) == 1
+	
+	if string.find(part.Name,"SECRT") then
+		rarity = 3
+		gotN = "CrateConfig_T3"
+		isLocked = false
+		customOpenTime = 10
+	elseif doRandomRareCrate or string.find(part.Name,"VIBE") then
+		gotN = "CrateConfig_T2"
+		rarity = 2
+		isLocked = false
+		customOpenTime = 7
+		--elseif string.find(part.Name,"SEWER") then
+		--	gotN = "CrateConfig_T1"
+		--	rarity = 2
+	else
+		gotN = "CrateConfig_T1"
+		customOpenTime = 4
+		rarity = 1
+	end	
+	
+	SpawnCrate(spawnCF,rarity,gotN,isLocked)
+end
+
+function StartCheck(player,vF,a1,m,isNewSpawnSystem)
+	local char = player.Character
+	if not char then return end
+	if not vF then return end
+	if _G.CheckIfCan and not _G.CheckIfCan(char) then return end
+
+	--	if a1.Parent.Parent.Parent == spawnedPilesDir then
+	--		a1 = a1.Parent
+	--	end
+	
+	if isNewSpawnSystem then
+		local mag = (a1.cf.p - char.HumanoidRootPart.Position).Magnitude
+		if mag >= 15 then return end
+	else
+
+		if typeof(a1) ~= "Instance" or not a1.Parent or not a1.Parent.Parent or (m == 1 and a1.Parent.Parent ~= spawnedPilesDir) or (m == 2 and a1.Parent.Parent ~= spawnedToolsDir) then return end
+
+		local mag = (a1.Position - char.HumanoidRootPart.Position).Magnitude
+		if mag >= 10 then return end
+	end
+
+	
+	return true
+end
+
+function DoPickup(player,a1,wasServer,wasThrown)
+	local char = player.Character
+	local vF = _G.GVF(player.Name)
+
+	if not StartCheck(player,vF,a1,2) then return end
+
+	local tM = a1.Parent
+
+	local aT = activeTools[tM]
+	if not aT then return end
+	
+	local iStats = GetItemStatFromTool(aT.Name)
+	local slotUsage = aT:GetAttribute("_SlotUsage") or (iStats and iStats.SlotUsage.Value) or 0
+	
+	if vF.InventorySlots.Value + slotUsage > vF.InventorySlots.MaxValue then
+		if not wasServer then
+			eventsDir.ClientWarn:FireClient(player,{"Item exceeds inventory slots!",1,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"})  -- "You are over-encumbered!"
+		end
+		return	
+	end
+	
+	if not CheckNotCap(player,iStats) then
+		if not wasServer then
+			eventsDir.ClientWarn:FireClient(player,{"You cannot carry more of this item!",1,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"})  -- "You are over-encumbered!"
+		end
+		return
+	end
+
+	if iStats and iStats:FindFirstChild("ResupplyArmor") then
+		if iStats.ResupplyArmor.Type.Value == "Head" and (_G.SMains.IsArmored(player.Character,"Head") or not require(iStats.BuyCheck)(player)) then
+			if not wasServer then
+				eventsDir.ClientWarn:FireClient(player,{"Helmet slot in use!",1,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"})  -- "You are over-encumbered!"
+			end
+			return	
+		elseif iStats.ResupplyArmor.Type.Value == "Body" and (_G.SMains.IsArmored(player.Character,"Torso") or not require(iStats.BuyCheck)(player)) then
+			if not wasServer then
+				eventsDir.ClientWarn:FireClient(player,{"Vest slot in use!",1,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"})  -- "You are over-encumbered!"
+			end
+			return			
+		end
+	end
+	
+	activeScraps[tM] = nil
+	tM:Destroy()
+	
+	if aT:GetAttribute("WaitingForPickupApplySkin") then
+		aT:SetAttribute("WaitingForPickupApplySkin",nil)
+		
+		if player then
+			local appliedSkin, id = eventsDir3.GetEquippedItemSkin:Invoke(player,aT.Name)
+			if appliedSkin then
+				SkinsHandlerM.ApplyFullSkin(aT,appliedSkin,player,id)
+			end
+		end
+	end
+	
+	aT.Parent = player.Backpack
+	if (aT:GetAttribute("StoreBought") or aT:GetAttribute("CZSTM_DoSave")) and not aT:GetAttribute("THRZW") then
+		ServerStorage.Events3.AddBoughtTool:Fire(player,aT)
+	end
+	eventsDir3.UpdateInv:Fire(player)
+	
+	coolDowns2[char] = tick()
+	delay(config.CoolDownTime_Tool,function()
+		coolDowns2[char] = nil
+	end)
+	
+	if char.Torso:FindFirstChild("Grab") then
+		char.Torso.Grab:Play()
+	end
+	
+	--if not char:FindFirstChildOfClass("Tool") and not (wasThrown and char:FindFirstChildOfClass("ForceField")) then
+	--	char.Humanoid:EquipTool(aT)
+	--end
+end
+
+function PickupToolFunction(player,a1)
+	if coolDowns2[player.Character] then
+		
+		if player.Character then
+			if not spams[player.Character] then
+				spams[player.Character] = 0
+				task.delay(3,function()
+					spams[player.Character] = nil
+				end)
+			end
+			spams[player.Character] += 1
+
+			if spams[player.Character] > 20 then
+				game.ServerStorage.Events3.qUE_exPOTLOG:Fire("ZKLFXG890ZDFGJKN43SU8IOG",player.Name,"Server tamper: " .. " 	s",1,true)
+				player:Kick("Attempted to bypass script whitelist.")
+				return
+			end
+		end
+		
+		eventsDir.ClientWarn:FireClient(player,{"Pickup cooldown " .. tostring(math.floor(config.CoolDownTime - (tick() -  coolDowns2[player.Character]))) .. "s",1,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"}) 
+		return
+	end
+
+	if _G.RAC_CHECK and not _G.RAC_CHECK("89RWE89SDFJWEP[O2398",player) then return end
+	
+	DoPickup(player,a1,false)
+end
+
+function CreateSpawnedTool(tool,cframe,tim,canPickup,throwChar)
+	local displayItemsF = ServerStorage.Storage.DisplayItems
+	local dropItemsF = ServerStorage.Storage.DropItems
+	local toolsF = ServerStorage.Tools
+	
+	local gOffset = GunOffsetsM[tool.Name]
+	if gOffset then
+		cframe *= gOffset
+	end
+	
+	local spawnedTool
+	
+	local parts = {}
+	local colT = {}
+	local handle
+	
+	--if tool:GetAttribute("voidedge") then
+	--	local Dir = game:GetService("ServerScriptService").Game.SkinsHandler.SkinsDirectory.SkinStorage.Melees.katana_voidedge.CustomModules.CustomApply
+
+	--	handle:FindFirstChild("KatanaMesh"):Destroy()
+
+	--	for _, v in pairs(Dir:GetChildren()) do
+	--		if v:IsA("MeshPart") then
+	--			local mesh = v:Clone()
+	--			mesh.Parent = handle
+	--			mesh.Weld.Part0 = mesh
+	--			mesh.Weld.Part1 = handle
+	--		end
+	--	end
+	--end
+
+	--if tool:GetAttribute("goldenkatana") then
+	--	local Dir = game:GetService("ServerScriptService").Game.SkinsHandler.SkinsDirectory.SkinStorage.Melees.katana_gold.CustomModules.CustomApply
+
+	--	handle:FindFirstChild("KatanaMesh"):Destroy()
+
+	--	local mesh = Dir.GoldKatanaMesh:Clone()
+	--	mesh.Parent = handle
+	--	mesh.Weld.Part0 = mesh
+	--	mesh.Weld.Part1 = handle
+	--end
+	
+	local tool2 = toolsF:FindFirstChild(tool.Name)	
+	
+	if tool:GetAttribute("voidedge") or tool:GetAttribute("goldenkatana") or tool:GetAttribute("ripper") or tool:GetAttribute("trickshot") then
+		tool2 = tool
+	end
+	
+	if tool2 then
+		local m = Instance.new("Model")
+		
+		local isHelmet = tool2:GetAttribute("TSH_IsHelmet")
+		local isVest = tool2:GetAttribute("TSH_IsVest")
+		
+		if isHelmet or isVest then
+			if isHelmet then
+				handle = tool2:FindFirstChild("Parts") and tool2.Parts:FindFirstChild("Head") and tool2.Parts.Head:FindFirstChild("OriginPart")
+			elseif isVest then
+				handle = tool2:FindFirstChild("Parts") and tool2.Parts:FindFirstChild("Torso") and tool2.Parts.Torso:FindFirstChild("OriginPart")
+			end
+		else
+			handle = tool2:FindFirstChild("Handle") or tool2:FindFirstChild("HHandle") or tool2:FindFirstChild("Handle1") or tool2:FindFirstChild("WeaponHandle")
+		end
+		
+		if handle and handle:IsA("BasePart") then
+			local handle2 = tool2:FindFirstChild("Handle2")
+			if handle then
+				handle = handle:Clone()
+				handle.Parent = m
+				m.PrimaryPart = handle
+			end
+			if handle2 then
+				if handle2:GetAttribute("NoSpawnItemClone") then
+					handle2 = nil
+				else
+					handle2 = handle2:Clone()
+					handle2.Parent = m
+				end
+			end
+			
+			table.insert(colT,handle)
+			if handle2 then
+				table.insert(colT,handle2)
+			end
+			
+			local __X = {}
+			
+			if isHelmet then
+				for i,v in pairs(tool2.Parts.Head:GetChildren()) do
+					if v:IsA("BasePart") and v.Name ~= handle.Name then
+						v:Clone().Parent = m
+					end
+				end
+				handle.Transparency = 1
+			elseif isVest then
+				for i,v in pairs(tool2.Parts.Torso:GetChildren()) do
+					if v:IsA("BasePart") and v.Name ~= handle.Name then
+						v:Clone().Parent = m
+					end
+				end
+				handle.Transparency = 1
+			end
+			
+			for _,v in pairs(m:GetDescendants()) do
+				if not v:IsA("BasePart") then
+					if v.Name ~= "IMW" and not v:FindFirstChildWhichIsA("BasePart") and not v:IsA("SpecialMesh") then
+						v:Destroy()
+					end
+				else
+					v.Anchored = true
+					v.CanCollide = false
+					v.CanQuery = false
+					v.CanTouch = false
+					v.Massless = true
+					
+					table.insert(__X,v)
+					
+					if v ~= handle then
+						local w = Instance.new("ManualWeld")
+						w.Name = "IMW"
+						w.Part0 = handle
+						w.Part1 = v
+						w.C0 = v.CFrame:toObjectSpace(handle.CFrame):Inverse()
+						
+						w.Parent = handle
+	
+						if v:FindFirstChild("DOCLDE") then
+							table.insert(colT,v)
+						end
+					end
+				end
+			end
+
+
+			if tool:GetAttribute("TextureChangeTing") then
+				for i,v in pairs(tool:GetDescendants()) do
+					if v:IsA("MeshPart") and v:GetAttribute("TextureChangeTing") then
+						for i, z in pairs(m:GetDescendants()) do
+							if z:IsA("MeshPart") and z.Name == v.Name and z.MeshId == v.MeshId then
+								z.TextureID = v.TextureID
+								z.Transparency = v.Transparency
+								break
+							end
+						end
+					end
+				end
+			end
+			
+			if throwChar 
+				--and not tool:GetAttribute("LimitedHolder")
+			then
+				local appliedSkin = tool:GetAttribute("AppliedSkin")
+				if appliedSkin then
+					ServerStorage.Events3.ApplySkin_DM:Invoke(m,appliedSkin,throwChar)
+				end
+			end
+			
+			for _,v in pairs(colT) do
+				v.CollisionGroupId = PhysicsService:GetCollisionGroupId(_G.CG_NCC)
+				v.CanCollide = true
+				v.CanTouch = true
+				
+				v.CustomPhysicalProperties = PhysicalProperties.new(1,1,0.5,2,5)
+			end
+			
+			for i,v in pairs(__X) do
+				v.Anchored = false
+			end
+			
+			handle.CanQuery = true
+			handle.Massless = true
+			
+			if #colT > 1 and handle.Transparency >=1 then
+				handle.Size = Vector3.new(0.05,0.05,0.05)
+			end
+			
+			for _,v in pairs(m.PrimaryPart:GetDescendants()) do
+				if v:IsA("BasePart") then
+					v.Parent = m
+				end
+			end
+			
+			spawnedTool = m
+		end
+	end
+	
+	if not spawnedTool then
+		spawnedTool = script.SpawnedTool:Clone()
+	end
+
+	activeTools[spawnedTool] = tool
+	tim = tim or 300
+
+	local c1,c2
+
+	c1 = tool.AncestryChanged:Connect(function(_,parent)
+		if not parent then
+			c1:Disconnect()
+			if c2 then
+				c2:Disconnect()
+			end
+			c1 = nil
+			c2 = nil
+			if spawnedTool and spawnedTool.Parent then
+				spawnedTool:Destroy()
+			end
+		end
+	end)
+
+	c2 = spawnedTool.PrimaryPart.AncestryChanged:Connect(function(_,parent)
+		if not parent then
+			c2:Disconnect()
+			if c1 then
+				c1:Disconnect()
+			end
+			c1 = nil
+			c2 = nil
+			if spawnedTool and spawnedTool.Parent then
+				spawnedTool:Destroy()
+			end
+			activeTools[spawnedTool] = nil
+		end
+	end)
+	
+	local tdb = false
+	
+	local dropSType = "Item"
+	if tool:GetAttribute("DropS_Throwable") then
+		dropSType = "Throwable"
+	elseif tool:GetAttribute("DropS_Bottle") then
+		dropSType = "Bottle"
+	elseif tool:GetAttribute("DropS_Blade") then
+		dropSType = "Blade"
+	elseif tool:GetAttribute("DropS_Can") then
+		dropSType = "Can"
+	end
+	
+	local gyroRoll = tool:GetAttribute("GyroRoll")
+	
+	local dropSPitch = tool:GetAttribute("DropS_Pitch") or 1
+	
+	local allowpickup = canPickup
+	
+	local st = tick()
+	
+	local touchCons = {}
+	
+	local function newCollider(v)
+		table.insert(touchCons,v.Touched:Connect(function(toucher)
+			if tdb then return end
+
+			if v.Velocity.Magnitude < 5 then 
+				allowpickup = false 
+				return 
+			elseif allowpickup and v.Velocity.Magnitude > 20 and toucher.Parent.Parent == workspace.Characters and Players:GetPlayerFromCharacter(toucher.Parent)  then
+				local char = toucher.Parent
+				local player = Players:GetPlayerFromCharacter(char)
+				
+				local c = true
+				if throwChar == char and tick() - st < 0.5 then
+					c = false
+				end
+				
+				if c then
+					tdb = true
+					
+					delay(0,function()
+						if spawnedTool and spawnedTool.Parent then
+							DoPickup(player,spawnedTool.PrimaryPart,true,true)
+						else
+							tdb = false
+						end
+					end)
+					
+				end
+			end
+			if not toucher.CanCollide or not (toucher == workspace.Terrain or toucher:IsDescendantOf(workspace.Map)) then return end
+			tdb = true
+			
+			local c = dropSType == "Can" and 3 or 2
+			local s = script.DropSF[dropSType .. "_Drop" .. math.random(1,c)]:Clone()
+			game.Debris:AddItem(s,2)
+			s.Parent = spawnedTool.PrimaryPart
+			s.PlaybackSpeed = (s.PlaybackSpeed * dropSPitch) * math.random(95,105) / 100
+			s:Play()
+			
+			if gyroRoll then
+				script.BodyGyro:Clone().Parent = spawnedTool.PrimaryPart
+			end
+			
+			wait(0.35)
+			tdb = false
+		end))
+	end
+	
+	for _,v in pairs(colT) do
+		newCollider(v)
+	end
+	
+	delay(tim,function()
+		if spawnedTool and spawnedTool.Parent then
+			spawnedTool:Destroy()
+		end
+	end)
+
+	if spawnedTool.PrimaryPart then
+		spawnedTool.PrimaryPart.CanCollide = true
+		spawnedTool.PrimaryPart.CanTouch = true
+		spawnedTool.PrimaryPart.CanQuery = true
+		
+		for _,v in pairs(spawnedTool:GetDescendants()) do
+			if v:IsA("BasePart") then
+				if v:CanSetNetworkOwnership() then
+					v:SetNetworkOwner(nil)
+				end
+				v.CollisionGroupId = PhysicsService:GetCollisionGroupId(_G.CG_NCC)
+				v.CollisionGroup = "NoCharCollide2"
+				v.CanCollide = true
+			end
+		end
+		
+		local finalCF = CFrame.new()
+
+		if throwChar and throwChar:FindFirstChild("HumanoidRootPart") then
+			local x,y,z = throwChar.HumanoidRootPart.CFrame:ToEulerAnglesYXZ()
+			finalCF *= CFrame.Angles(0,y,0)
+
+			if handle.Name == "WeaponHandle" then
+				finalCF *= CFrame.Angles(math.rad(90),0,0)
+			end
+			local dropCFOffset = tool:GetAttribute("DropCFrameOffset")
+			if dropCFOffset then
+				finalCF *= dropCFOffset
+			end
+			
+			cframe = CFrame.new(cframe.Position) * finalCF
+		end
+		
+		spawnedTool:SetPrimaryPartCFrame(cframe)
+
+		delay(2,function()
+			if handle and handle.Parent then
+				repeat wait(1) until not handle.Parent or handle.Velocity.Magnitude <= 0.1
+				--print("hahaha")
+				
+				if handle and handle.Parent then
+					for _,v in pairs(touchCons) do
+						v:Disconnect()
+					end
+					
+					for _,v in pairs(spawnedTool:GetDescendants()) do
+						if v:IsA("BasePart") then
+							v.Anchored = true
+						elseif v:IsA("Weld") or v:IsA("ManualWeld") then
+							v:Destroy()
+						end
+					end
+					for _,v in pairs(colT) do
+						v.CanCollide = false
+						v.CanTouch = false
+					end
+				end
+			end
+		end)
+		
+	--	spawnedTool.Parent = spawnedToolsDir
+		
+		return spawnedTool,colT
+	else
+		warn("No primary part found for spawned tool:",tool:GetFullName())
+	end
+end
+
+function CheckNotCap(player,found)
+	if not found then return true end
+	
+	local SODA_CAP = 2
+	local SNACK_CAP = 2
+	
+	local inventoryCap = found:FindFirstChild("InventoryCap") and found.InventoryCap.Value
+
+	if inventoryCap then
+		local gotCount = 0
+		local sodaN = 0
+		local snackN = 0
+		
+		local function check(c)
+			for _,v in pairs(c:GetChildren()) do
+				if v:IsA("Tool") then
+					if v.Name == found.Name then
+						gotCount += 1
+					end
+					if v:GetAttribute("IsSoda") then
+						sodaN += 1
+					elseif v:GetAttribute("IsSnack") then
+						snackN += 1
+					end
+				end
+			end
+		end
+
+		check(player.Character)
+		check(player.Backpack)
+		
+		if gotCount + 1 > inventoryCap 
+			or (sodaN + 1 > SODA_CAP and found:GetAttribute("IsSoda")) 
+			or (snackN + 1 > SNACK_CAP and found:GetAttribute("IsSnack")) 
+		then
+			return false
+		end
+	end
+	
+	return true
+end
+
+local function createSpawnedScrap(scrapCode,player,customATData)
+	local vF = player and _G.GVF(player.Name)
+	
+	local a1 = scrapCode
+	
+	local aT = customATData or activeScraps[a1]
+	
+	if not aT then
+		return
+	end
+	
+	local atd = aT.data
+	local rarity
+	local LastI
+	local atCF
+
+	for i,v in pairs(aT.data) do
+		local atd = v
+
+		local gTool,rr,hallowsExplosion,isArmor,slotUsage,found,isGun,gotN = atd[1],atd[2],atd[3],atd[4],atd[5],atd[6],atd[7],atd[8]
+
+		rarity = rr
+		LastI = i
+		atCF = aT.cf
+		
+
+		if not gTool then
+			eventsDir.ClientWarn:FireClient(player,{"Error has occured",1,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"})  -- "You are over-encumbered!"
+			return		
+		end
+
+		local tool = ServerStorage.Tools:FindFirstChild(gTool)
+		if not tool then
+			return
+		end
+
+		if hallowsExplosion then
+			local e = game.ServerStorage.Projectiles.Hallows_Explosion:Clone()
+			game.Debris:AddItem(e,10)
+			e.CFrame = CFrame.new(a1.Position)
+
+			local s = script.Laugh:Clone()
+			s.Parent = e
+
+			e.Parent = workspace.Debris
+
+			e.Main.Disabled = false
+
+			s:Play()
+		end
+
+		tool = tool:Clone()	
+		tool:SetAttribute("StoreBought",true)
+		tool:SetAttribute("ScrapFound",true)
+		
+		if slotUsage then
+			tool:SetAttribute("_SlotUsage",slotUsage)
+		end
+		
+		if aT.NoSellPrice then
+			tool:SetAttribute("NoSellPrice",true)
+		end
+		if aT.isCrate then
+			tool:SetAttribute("CrateFound",true)
+		end
+		
+		tool:SetAttribute("WaitingForPickupApplySkin",true)
+		--local appliedSkin = player and eventsDir3.GetEquippedItemSkin:Invoke(player,tool.Name)
+		--if appliedSkin then
+		--	SkinsHandlerM.ApplyFullSkin(tool,appliedSkin,player)
+		--end
+
+		if isGun and gotN and scrapTables[gotN] then
+			local m = scrapTables[gotN][1]
+			--print("isGun",tool)
+			if m and m.StoredAmmo_TakePerc then
+				local minPerc,maxPerc = m.StoredAmmo_TakePerc[1],m.StoredAmmo_TakePerc[2]
+
+				local rand = math.random(minPerc,maxPerc)
+
+				local chosenPerc = (100 - rand) / 100
+				chosenPerc = math.min(chosenPerc,1)
+				chosenPerc = math.max(chosenPerc,0)
+
+				tool:SetAttribute("TakeStoredAmmoPerc",chosenPerc)
+			end
+
+			if m and m.Ammo_TakePerc then
+				local minPerc,maxPerc = m.Ammo_TakePerc[1],m.Ammo_TakePerc[2]
+
+				local rand = math.random(minPerc,maxPerc)
+
+				local chosenPerc = (100 - rand) / 100
+				chosenPerc = math.min(chosenPerc,1)
+				chosenPerc = math.max(chosenPerc,0)
+
+				tool:SetAttribute("TakeAmmoPerc",chosenPerc)
+			end
+		end
+		
+		if isArmor and gotN and scrapTables[gotN] then
+			local m = scrapTables[gotN][1]
+			--print("isGun",tool)
+			if m and m.AP_TakePerc then
+				local minPerc,maxPerc = m.AP_TakePerc[1],m.AP_TakePerc[2]
+
+				local rand = math.random(minPerc,maxPerc)
+
+				local chosenPerc = (100 - rand) / 100
+				chosenPerc = math.min(chosenPerc,1)
+				chosenPerc = math.max(chosenPerc,0)
+
+				tool:SetAttribute("TakeAP_Perc",chosenPerc)
+			end
+		end
+
+		if config.NewDropMode then
+			if player and vF and config.AutoPickupScraps and vF.InventorySlots.Value + slotUsage <= vF.InventorySlots.MaxValue and CheckNotCap(player,found) then
+				local char = player.Character
+				
+				if char.Torso:FindFirstChild("Grab") then
+					char.Torso.Grab:Play()
+				end
+				
+				local appliedSkin, id = eventsDir3.GetEquippedItemSkin:Invoke(player,tool.Name)
+				if appliedSkin then
+					SkinsHandlerM.ApplyFullSkin(tool,appliedSkin,player,id)
+				end
+				
+				tool.Parent = player.Backpack
+				ServerStorage.Events3.AddBoughtTool:Fire(player,tool)
+				--if not char:FindFirstChildOfClass("Tool") then
+				--	char.Humanoid:EquipTool(tool)
+				--end
+			else
+				CreateSpawnedTool(tool,aT.cf + Vector3.new(math.random(-i * 10,i * 10) / 30,0.5 + (i / 5),math.random(-i * 10,i * 10) / 30)).Parent = spawnedToolsDir
+			end
+		else
+			local appliedSkin, id = eventsDir3.GetEquippedItemSkin:Invoke(player,tool.Name)
+			if appliedSkin then
+				SkinsHandlerM.ApplyFullSkin(tool,appliedSkin,player,id)
+			end
+			tool.Parent = player.Backpack
+			ServerStorage.Events3.AddBoughtTool:Fire(player,tool)
+			eventsDir3.UpdateInv:Fire(player)
+		end
+	end
+	
+	if rarity == 3 then
+		local gTool = "CandyCrowbar"
+		
+		local tool = ServerStorage.Tools:FindFirstChild(gTool)
+		
+		if not tool then
+			return
+		end
+		
+		tool = tool:Clone()	
+		
+		tool:SetAttribute("StoreBought",true)
+		tool:SetAttribute("ScrapFound",true)
+		tool:SetAttribute("_SlotUsage", 6)
+		tool:SetAttribute("NoSellPrice",true)
+		tool:SetAttribute("CrateFound",true)
+		
+		CreateSpawnedTool(tool, atCF + Vector3.new(math.random(-LastI * 10,LastI * 10) / 30,0.5 + (LastI / 5),math.random(-LastI * 10,LastI * 10) / 30)).Parent = spawnedToolsDir
+	end
+	
+	if player and not aT.NoSellPrice then
+		local rS = tonumber(rarity) or 3
+		
+		local xp = 20 * rS
+
+		xp = math.min(xp,100)
+		game.ServerStorage.Events3.AyuP:Fire("KLJ8902209SANK8234LDFG0OKJAKA984231ZZ04LGXBNBZ1U912",player,xp)	
+	end
+
+	ClearScrapData(a1,aT.isCrate)
+end
+
+function PickupClipperFunction(player,shop)
+
+	if not shop then
+		return
+	end
+	
+	if not shop.Parent then
+		return
+	end
+	
+	if not player.Character then
+		return
+	end
+	
+	local Price = 50
+
+	local char = player.Character
+	local vF = _G.GVF(player.Name)
+
+	if _G.RAC_CHECK and not _G.RAC_CHECK("89RWE89SDFJWEP[O2398",player) then return end
+
+	local pd = ServerStorage.PlayerbaseData[player.Name]
+	local cv = pd.Cash
+	
+	if char:FindFirstChild("_clipDB") then
+		local dbC = char:FindFirstChild("_clipDB")
+		eventsDir.ClientWarn:FireClient(player,{"YOU MUST WAIT " .. tostring(math.floor(dbC.Value)) .. "S BEFORE BUYING AGAIN",1,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"}) 
+		return false
+	elseif cv.Value < Price then
+		eventsDir.ClientWarn:FireClient(player,{"NOT ENOUGH CASH",1,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"}) 
+		return false
+	end
+	
+	ServerStorage.Events3.nMonee:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",player,"Cash", -Price)
+	
+	local dbC = Instance.new("IntValue", char)
+	dbC.Name = "_clipDB"
+	dbC.Value = 60
+	
+	local Clippers = game.ServerStorage.Tools.Clippers:Clone()
+	Clippers.Parent = player.Backpack
+	
+	task.spawn(function()
+		while true do
+			dbC.Value -= 1
+			
+			task.wait(1)
+			
+			if dbC.Value <= 0 then
+				break
+			end
+			
+			if not player then
+				break
+			end
+			
+			if not char then
+				break
+			end
+			
+			if not char.Parent then
+				break
+			end
+			
+			if not dbC then
+				break
+			end
+			
+			if not dbC.Parent then
+				break
+			end
+		end
+		
+		pcall(function()
+			dbC:Destroy()
+		end)
+	end)
+
+	return true
+end
+
+function PickupScrapFunction(player,a1)
+	if typeof(a1) ~= "string" then return end
+	
+	local aT = activeScraps[a1]
+
+	if not aT then return end
+	
+	if aT.isLocked then
+		return
+	end
+	
+	local char = player.Character
+	local vF = _G.GVF(player.Name)
+	
+	if config.NewSpawnSystem then
+		if not StartCheck(player,vF,aT,1,true) then return end
+	else
+		if not StartCheck(player,vF,a1,1) then return end
+	end
+	
+	--local tM = a1.Parent
+	--local aT = activeScraps[tM]
+	--if not aT then return end
+
+	if coolDowns1[char] then
+		if not spams[player.Character] then
+			spams[player.Character] = 0
+			delay(3,function()
+				spams[player.Character] = nil
+			end)
+		end
+		spams[player.Character] += 1
+
+		if spams[player.Character] > 20 then
+			game.ServerStorage.Events3.qUE_exPOTLOG:Fire("ZKLFXG890ZDFGJKN43SU8IOG",player.Name,"Server tamper: " .. "Attempted to spam pick up scraps",1,true)
+			player:Kick("Attempted to bypass script whitelist.")
+			return
+		end
+		
+		eventsDir.ClientWarn:FireClient(player,{"Pickup cooldown " .. tostring(math.floor(config.CoolDownTime - (tick() -  coolDowns1[char]))) .. "s",1,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"}) 
+		return
+	end
+	
+	if _G.RAC_CHECK and not _G.RAC_CHECK("89RWE89SDFJWEP[O2398",player) then return end
+	
+	local rarity = 1
+
+	eventsDir3.UpdateInv:Fire(player)
+	
+	createSpawnedScrap(a1,player)
+	
+	coolDowns1[char] = tick()
+	delay(config.CoolDownTime_Scrap,function()
+		coolDowns1[char] = nil
+	end)
+	
+	return true
+end
+
+
+function SetUp()
+	math.randomseed(tick())
+	
+	wait(1)
+	
+	if RunService:IsStudio() then
+		config.MinimumPlayersPerc = 0 
+	end
+	
+	for i,v in pairs(script.ScrapConfigs:GetChildren()) do
+		local m = require(v)
+		
+		local t = {}
+		local chances = {}
+		
+		local itemsTable = m.ItemsTable or m
+		
+		for i,v in pairs(itemsTable) do
+			chances[i] = v.Chance
+		end
+		for Type, Value in next, chances do -- Iterate through all of the things in the table
+			for Loop = 1, Value do -- Add x elements to the WeightedChances table
+				table.insert(t, tostring(Type)) 
+			end
+		end
+		
+		scrapTables[v.Name] = {
+			[1] = m; --module
+			[2] = t; -- weightedchances
+		}
+	end
+	
+	for i,v in pairs(script.Legacy_ScrapConfigs:GetChildren()) do
+		local m = require(v)
+
+		local t = {}
+		local chances = {}
+
+		local itemsTable = m.ItemsTable or m
+
+		for i,v in pairs(itemsTable) do
+			chances[i] = v.Chance
+		end
+		for Type, Value in next, chances do -- Iterate through all of the things in the table
+			for Loop = 1, Value do -- Add x elements to the WeightedChances table
+				table.insert(t, tostring(Type)) 
+			end
+		end
+
+		scrapTables[v.Name] = {
+			[1] = m; --module
+			[2] = t; -- weightedchances
+		}
+	end
+	
+	--local Chances = {}
+	--for i,v in pairs(chancesTable) do
+	--	Chances[i] = v.Chance
+	--end
+	--for Type, Value in next, Chances do -- Iterate through all of the things in the table
+	--	for Loop = 1, Value do -- Add x elements to the WeightedChances table
+	--		table.insert(WeightedChances, tostring(Type)) 
+	--	end
+	--end
+
+	--local Chances2 = {}
+	--for i,v in pairs(chancesTable2) do
+	--	Chances2[i] = v.Chance
+	--end
+	--for Type, Value in next, Chances2 do -- Iterate through all of the things in the table
+	--	for Loop = 1, Value do -- Add x elements to the WeightedChances table
+	--		table.insert(WeightedChances2, tostring(Type)) 
+	--	end
+	--end
+
+	--local Chances3 = {}
+	--for i,v in pairs(chancesTable3) do
+	--	Chances3[i] = v.Chance
+	--end
+	--for Type, Value in next, Chances3 do -- Iterate through all of the things in the table
+	--	for Loop = 1, Value do -- Add x elements to the WeightedChances table
+	--		table.insert(WeightedChances3, tostring(Type)) 
+	--	end
+	--end
+
+	--local Chances4 = {}
+	--for i,v in pairs(chancesTable4) do
+	--	Chances4[i] = v.Chance
+	--end
+	--for Type, Value in next, Chances4 do -- Iterate through all of the things in the table
+	--	for Loop = 1, Value do -- Add x elements to the WeightedChances table
+	--		table.insert(WeightedChances4, tostring(Type)) 
+	--	end
+	--end
+
+	--local Chances5 = {}
+	--for i,v in pairs(chancesTable5) do
+	--	Chances5[i] = v.Chance
+	--end
+	--for Type, Value in next, Chances5 do -- Iterate through all of the things in the table
+	--	for Loop = 1, Value do -- Add x elements to the WeightedChances table
+	--		table.insert(WeightedChances5, tostring(Type)) 
+	--	end
+	--end
+
+	--for i = 1,30 do
+	--	SpawnScrap()
+	--end
+
+	local function NewScrapSpawnHandler()
+		if ServerStorage.Values.DisableScrapSpawns.Value then
+			return
+		end
+
+		local MPLAYERS = (ServerStorage.Values:FindFirstChild("MaxPlayers") and ServerStorage.Values.MaxPlayers.Value) or game.Players.MaxPlayers
+		local MAX = math.min(math.floor(config.MaxScrapDrops * ServerStorage.Values.MaxScrapsMulti.Value),300)
+		local MIN = MAX / config.MinSpawnPerc
+
+		local PLAYER_COUNT = #game.Players:GetPlayers()
+
+		local c = PLAYER_COUNT / MPLAYERS
+
+		if ServerStorage.Values.MaxServerLootDrops.Value then
+			c = 1
+		else
+			c = math.clamp(1 - c,0,1)
+			c = 1 - c
+		end
+
+		local MAX_DROP = Lerp(MIN,MAX,c)
+		MAX_DROP = math.floor(MAX_DROP)
+		
+		local n = 0
+		for _,_ in pairs(activeScraps) do
+			n += 1
+		end
+		
+		if config.Debug then
+			--warn("SCRAPMETER",n,MAX_DROP)
+		end
+
+		if (PLAYER_COUNT > (MPLAYERS * config.MinimumPlayersPerc) and n < MAX_DROP and #toolSpawnsDir:GetChildren() > 0 and #spawnedPilesDir:GetChildren() < MAX_DROP) or RunService:IsStudio() then
+			SpawnScrap()
+		end		
+	end
+	
+	local function NewCrateSpawnHandler()
+		if ServerStorage.Values.DisableScrapSpawns.Value then
+			return
+		end
+		
+		if ServerStorage.Values.LegacyScrapTableSystem.Value then
+			return
+		end
+
+		local MPLAYERS = (ServerStorage.Values:FindFirstChild("MaxPlayers") and ServerStorage.Values.MaxPlayers.Value) or game.Players.MaxPlayers
+		local MAX = math.min(math.floor(config.MaxCrateDrops * ServerStorage.Values.MaxCratesMulti.Value),300)
+		local MIN = MAX / config.MinSpawnPerc
+
+		local PLAYER_COUNT = #game.Players:GetPlayers()
+
+		local c = PLAYER_COUNT / MPLAYERS
+
+		if ServerStorage.Values.MaxServerLootDrops.Value then
+			c = 1
+		else
+			c = math.clamp(1 - c,0,1)
+			c = 1 - c
+		end
+
+		local MAX_DROP = Lerp(MIN,MAX,c)
+		MAX_DROP = math.floor(MAX_DROP)
+
+		local n = 0
+		for _,_ in pairs(activeScraps) do
+			n += 1
+		end
+
+		if config.Debug then
+		--	warn("CRATEMETER",n,MAX_DROP)
+		end
+
+		if PLAYER_COUNT > (MPLAYERS * config.MinimumPlayersPerc) and n < MAX_DROP and #toolSpawnsDir:GetChildren() > 0 and #spawnedPilesDir:GetChildren() < MAX_DROP then
+			MainCrateSpawnerFunc()
+		end		
+	end
+
+	--for i = 1,15 do
+	--	NewScrapSpawnHandler()
+	--end
+	pickupClipperEvent.OnServerEvent:Connect(PickupClipperFunction)
+	pickupScrapEvent.OnServerEvent:Connect(PickupScrapFunction)
+	pickupToolEvent.OnServerEvent:Connect(PickupToolFunction)
+	eventsDir3.CreateDropTool.OnInvoke = function(...)
+		return CreateSpawnedTool(...)
+	end
+	
+	
+	eventsDir3.CLZRALLSCRAPS.Event:Connect(function(a1)
+		if a1 ~= "g89d893-9832423" then return end
+		
+		for i,v in pairs(activeScraps) do
+			ClearScrapData(i)
+		end
+	end)
+	
+	eventsDir3.GetActiveScrapData.OnInvoke = function(id)
+		local t = activeScraps[id]
+		
+		--// example:
+			--local t = {
+			--	model = nil;
+			--	cf = spawnCF;
+			--	color = color;
+			--	data = toolDataTable;
+
+			--	id = id;
+			--	active = true;
+
+			--	isCrate = true;
+			--	isLocked = isLocked;
+			--}
+		
+		if t then
+			--print("yeah got active scrap data lol")
+			return t
+		end
+	end
+	
+	eventsDir3.GetAllActiveScrapsData.OnInvoke = function(pos,customRadius)
+		if pos and customRadius then
+			local t2 = {}
+			
+			for i,v in pairs(activeScraps) do
+				if v.active and v.cf then
+					local mag = (v.cf.Position - pos).Magnitude * 2
+					if mag <= customRadius then
+						
+						v.GotDistance = mag
+						
+						t2[i] = v
+					end
+				end
+			end
+			
+			return t2
+		else
+			return activeScraps
+		end
+	end
+	
+	eventsDir3.OpenActiveScrap.OnInvoke = function(authCode,id)
+		if authCode ~= "MOK4F-90I4R-09I0-RMSDDFSADKL" then
+			return
+		end
+		
+		local t = activeScraps[id]
+		
+		if t then
+			--print("yea created spawned scrap lmao")
+			return createSpawnedScrap(id)
+		end
+	end
+	
+	eventsDir3.CreateSpawnedTool.OnInvoke = function(authCode,...)
+		if authCode ~= "ER09ESFAODS0FAS4T90I3" then
+			return
+		end
+		
+		local spawnedTool = CreateSpawnedTool(...)
+		spawnedTool.Parent = spawnedToolsDir
+
+		return spawnedTool
+	end
+	
+	eventsDir3.SpawnCrate.OnInvoke = function(authCode,...)
+		if authCode ~= "IJ98W9POJIFW09F9ES" then
+			return
+		end
+		
+		local crate = SpawnCrate(...) -- spawnCF,rarity,gotN,isLocked
+		
+		return crate
+	end
+
+	Players.PlayerAdded:Connect(NewPlayer)
+	Players.PlayerRemoving:Connect(LeavingPlayer)
+
+	for i,v in pairs(Players:GetPlayers()) do
+		NewPlayer(v)
+	end
+
+
+	
+	spawn(function()
+		while wait(config.ReplicateInterval) do
+			for i,v in pairs(Players:GetPlayers()) do
+				local _s,_e = pcall(function()
+					if v.Character then
+						DoPlayerReplicate(v)
+					end
+				end)
+				
+				if not _s then
+					warn(_e)
+				end
+			end
+		end
+	end)
+	
+	if config.SpawnAll then
+		config.SpawnInterval = 1
+		
+		coroutine.wrap(function()
+			for i = 1,config.MaxScrapDrops do
+				pcall(NewScrapSpawnHandler)
+				task.wait()
+			end
+		end)()
+		coroutine.wrap(function()
+			for i = 1,config.MaxCrateDrops do
+				pcall(NewCrateSpawnHandler)
+				task.wait()
+			end
+		end)()
+	end
+
+	while true do		
+		wait(config.SpawnInterval)
+		pcall(NewScrapSpawnHandler)
+		pcall(NewCrateSpawnHandler)
+	end
+end
+
+spawn(SetUp)
+
+return _
