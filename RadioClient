@@ -1,0 +1,155 @@
+--34GKB8495GJNNJR44FV
+local RunService = game:GetService("RunService")
+local TS = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Player = game.Players.LocalPlayer
+local EventsFolder = ReplicatedStorage:WaitForChild("Events")
+local Event = EventsFolder:WaitForChild("MonitorBoombox")
+local Event2 = EventsFolder:WaitForChild("PlayBoombox")
+
+local Camera = workspace.CurrentCamera
+
+local e1 = Instance.new("ColorCorrectionEffect",Camera)
+local e2 = Instance.new("BlurEffect",Camera);e2.Size = 0
+
+local boxes = {}
+
+local val = Instance.new("NumberValue",script)
+local t
+local fovV
+local running = false
+local snum = 0
+
+repeat wait(0.5) until _G.WaitForChar and _G.GVF
+
+local currentChar
+local function newChar(char)
+	wait()
+	
+	if not (char and char.Parent) then return end
+	
+	pcall(function() t:Cancel() end)
+	val.Value = 0
+	_G.WaitForChar()
+	local vf = _G.GVF()
+	fovV = Instance.new("NumberValue",vf.FOVs)	
+end
+
+Player.CharacterAdded:Connect(newChar)
+newChar(Player.Character)
+
+local function Do()
+	if fovV and fovV.Parent then	
+		local x = 0
+		local a = {}
+		
+		local function Do(box)
+			local s = box[1]
+			local b = s.Parent
+			local conf = box[2]
+
+			if not conf then return end
+			if not (s and s.Parent) then return end
+
+			local mag = (s.Parent.Position - Camera.CFrame.Position).Magnitude + 3
+			local pl = math.clamp(mag / conf.Shake.MaxDist,0.01,1); pl = 1 - pl
+			pl = pl * s.PlaybackLoudness
+			pl = pl / 5 * conf.Shake.Multi
+			a[s] = pl
+			x = x + pl
+
+			local m = b:FindFirstChildWhichIsA("SpecialMesh")
+			if m then
+				local o = m:FindFirstChild("Ori")
+				local o2 = m:FindFirstChild("Ori2")
+				if not o then
+					o = Instance.new("Vector3Value",m)
+					o.Name = "Ori"
+					o.Value = m.Scale
+				end
+				if not o2 then
+					o2 = Instance.new("Vector3Value",m)
+					o2.Name = "Ori2"
+					o2.Value = m.VertexColor
+				end
+				local x2 = x / 50
+
+				m.Scale = o.Value + Vector3.new(x2,x2,x2)
+				m.Offset = Vector3.new(0,conf.Shake.Offset1 + (x2 / conf.Shake.Offset2),0)
+				m.VertexColor = Vector3.new((o2.Value.X * 0.85) + (x2),o2.Value.Y,o2.Value.Z)
+			end
+		end
+		
+		for _,box in pairs(boxes) do
+			Do(box)
+		end
+	
+		pcall(function() t:Cancel() end)
+		t = TS:Create(val,TweenInfo.new(0.1,Enum.EasingStyle.Linear,Enum.EasingDirection.Out),{Value = x})
+		t:Play()
+		
+		x = val.Value
+		
+		Camera.CFrame = Camera.CFrame * CFrame.Angles(0, 
+			0, math.rad(math.random(-x, 
+			x) * 0.01)) + Vector3.new(
+			math.rad(math.random(-x * 0.05, x * 0.05) * 0.05), 
+			math.rad(math.random(-x * 0.05, x * 0.05) * 0.05), 
+			math.rad(math.random(-x * 0.05, x * 0.05) * 0.05)
+		)
+		
+		fovV.Value =  (x * 0.1)
+		
+		e2.Size = x * 0.1
+		e1.Brightness = x * 0.001
+	end
+end
+
+local function eee()
+	if snum <= 0 then
+		running = false
+		pcall(function() RunService:UnbindFromRenderStep("BoomboxTing") end)
+	elseif not running then
+		running = true
+		RunService:BindToRenderStep("BoomboxTing",10000,Do)
+	end	
+end
+
+Event2.OnClientEvent:Connect(function(s,m)
+	if m == "Play" then
+		s:Play()
+	elseif m == "Pause" then
+		s:Pause()
+	elseif m == "Resume" then
+		s:Resume()
+	elseif m == "Stop" then
+		s:Stop()
+	end
+end)
+
+Event.OnClientEvent:Connect(function(s,c)
+	boxes[s] = {s,c}
+	
+	snum = snum + 1
+	
+	s.AncestryChanged:Connect(function(_,parent)
+		if parent == nil and boxes[s] then
+			boxes[s] = nil
+			snum = snum - 1
+		elseif not boxes[s] then
+			boxes[s] = {s,c}
+			snum = snum + 1
+		end
+		
+		eee()
+	end)
+		
+	eee()
+end)
+
+--for _,v in pairs(workspace.Characters:GetDescendants()) do
+--	if v.Name == "IsPlaying" and v.Value and v.Parent:FindFirstChild("Handle") and v.Parent.Handle:FindFirstChildOfClass("Sound") then
+--		v.Parent.Handle:FindFirstChildOfClass("Sound"):Play()
+--	end
+--end
