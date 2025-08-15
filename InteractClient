@@ -1,0 +1,1598 @@
+--34GKB8495GJNNJR44FV
+local UIS =					game:GetService("UserInputService")
+local RunService =			game:GetService("RunService")
+local ReplicatedStorage =	game:GetService("ReplicatedStorage")
+local TS =					game:GetService("TweenService")
+
+local plr = game.Players.LocalPlayer
+local character
+local humanoid
+local root
+
+repeat wait(1) until _G.WaitForChar and _G.GVF
+
+local ModulesDir = ReplicatedStorage:WaitForChild("Modules")
+
+local guis = {}
+local Events =	ReplicatedStorage:WaitForChild("Events")
+local Events2 = ReplicatedStorage:WaitForChild("Events2")
+
+--for i = 1,2 do
+--	table.insert(guis,ReplicatedStorage.Storage.GUIs:WaitForChild("INTER_BGUI"):Clone())
+--end
+for i = 1,1 do
+	table.insert(guis,ReplicatedStorage.Storage.GUIs:WaitForChild("ProximityPrompt"):Clone())
+end
+
+local map = workspace:WaitForChild("Map",1000)
+map:WaitForChild("Doors")
+map:WaitForChild("ATMz")
+map:WaitForChild("ProximityShops")
+map:WaitForChild("Shopz")
+
+local atm_list = {}
+local door_list = {}
+local prox_list = {}
+local stone_list = {}
+local shop_list = {}
+local vending_list = {}
+
+local piles_list = {}
+local cash_list = {}
+local tool_list = {}
+local mystery_list = {}
+
+local updateMode = 1
+local anims = {toggle1 = nil;toggle2 = nil}
+local events = {}
+local busys = {}
+local doings = {}
+local actives = {}
+local M = {}
+local extras = {}
+
+
+local openinDoor
+local openinDoorCode
+local mValues
+local Inside = false
+
+local Camera = workspace.CurrentCamera
+
+local lastPos = Vector3.new(0,0,0)
+
+local getDir = script:WaitForChild("Gets")
+
+local modules = {}
+modules.GetDoor =		require(getDir:WaitForChild("GetDoor"):Clone())
+modules.GetMP =			require(getDir:WaitForChild("GetMP"):Clone())
+modules.GetDrops =		require(getDir:WaitForChild("GetDrops"):Clone())
+modules.WaterCheck2 = 	require(ModulesDir:WaitForChild("WaterCheck2"))
+
+getDir:ClearAllChildren()
+
+local function RayCheck(pos1,part,length,wl,x,z)
+	local ray = Ray.new(pos1, (part.Position - pos1).Unit * length)
+	local n, position = workspace:FindPartOnRayWithWhitelist(ray, wl, true)
+	
+	return (n == part or (x and n and n:IsDescendantOf(part)) or (z and n and n:IsDescendantOf(part.Parent))),position
+end
+
+local function KeyTxt(Key)
+	return string.sub(tostring(Key),14,string.len(tostring(Key)))
+end	
+	
+function AliveCheck()
+	return character and character.Parent and root and root.Parent and humanoid and humanoid.Parent and humanoid:GetState() ~= Enum.HumanoidStateType.Dead and (not mValues or (mValues and mValues.RagdollTime.Value <= 0))
+end
+------------------------------
+
+function CancelDo(e)
+	if doings[e] and typeof(e) == "Instance" and e.Parent then
+		doings[e][2].Frame.Bar:TweenSize(UDim2.new(0,0,1,0),Enum.EasingDirection.Out,Enum.EasingStyle.Linear,0,true)
+		doings[e] = nil
+	end
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function M.DoorCheck()
+	local door,knob
+		
+	--if not humanoid:GetAttribute("NoDoorInteract") then
+		door,knob = modules.GetDoor(root,door_list,doings)
+	--end
+	
+	local KEY1 = Enum.KeyCode.E
+	local KEY2 = Enum.KeyCode.G
+	local KEY3 = Enum.KeyCode.K
+	
+	if door and knob then
+		local events = door.Events
+		local values = door.Values
+
+		local healthV =		values.Health
+		local openV =		values.Open
+		local brokenV = 	values.Broken
+		local busyV = 		values.Busy
+		local busyV2 = 		values.Busy2
+		local busyV2_5 = 	values.Busy2_5
+		local busyV3 = 		values.Busy3
+		local busyV4 = 		values.Busy4
+		local lockedV = 	values.Locked
+		
+		local l = door:FindFirstChild("Lock")
+		
+		if M.DoorCheck_knob ~= knob then
+			CancelDo(M.DoorCheck_knob)
+		end
+		
+		if M.DoorCheck_l ~= l then
+			CancelDo(M.DoorCheck_l)
+		end
+		
+		if door.DoorBase:FindFirstChild("KnockPos") and M.DoorCheck_knockPos ~= door.DoorBase.KnockPos then
+			CancelDo(M.DoorCheck_knockPos)
+		end
+		
+		M.DoorCheck_knob = knob
+		M.DoorCheck_l = l
+		M.DoorCheck_knockPos = door.DoorBase:FindFirstChild("KnockPos")
+		
+		if not brokenV.Value and RayCheck(root.Position,knob,values.ActiveDistance.Value,{workspace.Map}) then
+--				gui1.Parent = knob
+--				gui1.Adornee = knob
+--				label1.Text = KeyTxt(Settings.InteractKey)
+--				gui1.Enabled = true
+--				
+--				if values.CanLock.Value and l and knob.Name == "Knob1" and not openV.Value then
+--					gui2.Parent = knob
+--					gui2.Adornee = l
+--					label2.Text = KeyTxt(Settings.LockKey)
+--					gui2.Enabled = true				
+--				end
+			
+			local tool = character:FindFirstChildOfClass("Tool")
+			
+			local x = not (_G.CheckIfFlinching(character,true)) and not _G.GVF().Currents:FindFirstChild("AntiDoor") and not (tool and not tool:FindFirstChild("DoorAllow") and tool:FindFirstChild("DoorUnable"))
+			
+--				if values.IsJail.Value and lockedV.Value and not can2 then
+--					mValues.Jailed.Value = true
+--				end
+			
+			if _G.DoorOpenCheck and not _G.DoorOpenCheck() then x = false end
+			
+			local result = {}
+			
+			if x then
+				if not busyV.Value and not busyV2.Value then
+					if busyV3.Value then
+						--label1.TextColor3 = Color3.fromRGB(255,0,0)
+						result[1] = {false,0,knob,Color3.new(1,0,0),KEY1}
+					else		
+						local m
+						if not door:FindFirstChild("IsGarageDoor") and not door:FindFirstChild("IsElevator1") then
+							m = not openV.Value and "Open" or "Close"
+						else
+							m = "Do"
+						end
+						result[1] = {true,0,knob,Color3.new(1,1,1),KEY1,events.Toggle,{m,knob}}
+					end
+				else
+					result[1] = {false,0,knob,Color3.new(0.5,0.5,0.5),KEY1}
+				end
+
+				local rayCheck = l and RayCheck(root.Position,door.Lock,values.ActiveDistance.Value,{workspace.Map},true)
+				
+				if l and values.CanLock.Value and not busyV2.Value and not busyV2_5.Value and not openV.Value and not busyV.Value and rayCheck then
+					if lockedV.Value then
+						result[2] = {true,0.15,l,Color3.fromRGB(24, 147, 255),KEY2,events.Toggle,{"Unlock",door.Lock}}
+					else
+						result[2] = {true,0.15,l,Color3.new(1,1,1),KEY2,events.Toggle,{"Lock",door.Lock}}
+					end
+				elseif l and values.CanLock.Value and not openV.Value and rayCheck then
+					result[2] = {false,0.15,l,Color3.new(0.5,0.5,0.5),KEY2}
+				elseif not rayCheck and not openV.Value and door.DoorBase:FindFirstChild("KnockPos") then
+					if busyV4.Value or busyV.Value or busyV2.Value or busyV3.Value then
+						result[2] = {false,0,door.DoorBase.KnockPos,Color3.new(0.5,0.5,0.5),KEY3}
+					else
+						result[2] =  {true,0,door.DoorBase.KnockPos,Color3.new(1,1,1),KEY3,events.Toggle,{"Knock",knob}}
+					end
+				end
+			else
+				result[1] = {false,0,knob,Color3.new(0.5,0.5,0.5),KEY1}
+			end
+			
+			local n = 0
+			if result[1] then
+				n = n + 1
+			end
+			if result[2] then
+				n = n + 1
+			end
+			if result[3] then
+				n = n + 1
+			end
+							
+			return result[1] and result,n
+		end
+	else
+		CancelDo(M.DoorCheck_knob)
+		CancelDo(M.DoorCheck_l)
+		CancelDo(M.DoorCheck_knockPos)
+	end
+end
+
+function M.ATMCheck()
+	local atm = modules.GetMP(root,atm_list,doings)
+	--print(atm,atm and RayCheck(root.Position,atm,4.5,true,true))
+	local KEY = Enum.KeyCode.E
+	if atm and RayCheck(root.Position,atm,4.5,{workspace.Map},true,true) then
+		local tool = character:FindFirstChildOfClass("Tool")
+		local x = not (_G.CheckIfFlinching())
+		
+		if _G.DoorOpenCheck and not _G.DoorOpenCheck() then x = false end
+	
+		local result = {}
+		
+		if M.ATMCheck_atm and M.ATMCheck_atm ~= atm then
+			CancelDo(M.ATMCheck_atm)
+		end
+		
+		M.ATMCheck_atm = atm
+		
+		if x then
+			result[1] = {true,0,atm.posA,Color3.new(1,1,1),KEY,Events2.ATM,{atm}}
+		else
+			result[1] = {false,0,atm.posA,Color3.new(0.5,0.5,0.5),KEY}
+		end
+		
+		return result,1
+	else
+		CancelDo(M.ATMCheck_atm)
+	end
+end
+
+function M.ShopCheck()
+	local shop = modules.GetMP(root,shop_list,doings)
+	local KEY = Enum.KeyCode.E
+	if shop and RayCheck(root.Position,shop,4.5,{workspace.Map},true,true) then
+		local tool = character:FindFirstChildOfClass("Tool")
+		local x = not (_G.CheckIfFlinching()) 
+		--and _G.CheckIfCan(character)
+		
+		if _G.DoorOpenCheck and not _G.DoorOpenCheck() then x = false end
+		if tool and tool:FindFirstChild("CantDrop") and tool.CantDrop.Value then x = false end
+		
+		local result = {}
+		
+		if M.ShopCheck_shop ~= shop then
+			CancelDo(M.ShopCheck_shop)
+		end
+		
+		M.ShopCheck_shop = shop
+			
+		if x then
+			result[1] = {true,0,shop.posA,Color3.new(1,1,1),KEY,Events2.Shop,{shop},anims.toggle1}
+		else
+			result[1] = {false,0,shop.posA,Color3.new(0.5,0.5,0.5),KEY}
+		end
+		
+		return result,1
+	else
+		CancelDo(M.ShopCheck_shop)
+	end
+end
+
+function M.ProxCheck()
+	local prox = modules.GetMP(root,prox_list,doings)
+	local KEY = Enum.KeyCode.E
+	if prox and RayCheck(root.Position,prox,4.5,{workspace.Map},true,true) then
+		local tool = character:FindFirstChildOfClass("Tool")
+		local x = not (_G.CheckIfFlinching()) 
+		--and _G.CheckIfCan(character)
+
+		if _G.DoorOpenCheck and not _G.DoorOpenCheck() then x = false end
+		if tool and tool:FindFirstChild("CantDrop") and tool.CantDrop.Value then x = false end
+
+		local result = {}
+
+		if M.ProxCheck_shop ~= prox then
+			CancelDo(M.ProxCheck_shop)
+		end
+
+		M.ProxCheck_shop = prox
+
+		if x then
+			result[1] = {true,1,prox.posA,Color3.new(1,1,1),KEY,Events.PIC_CI,{prox}}
+		else
+			result[1] = {false,1,prox.posA,Color3.new(0.5,0.5,0.5),KEY}
+		end
+
+		return result,1
+	else
+		CancelDo(M.ProxCheck_shop)
+	end
+end
+
+function M.StoneCheck()
+	local stone = modules.GetMP(root,stone_list,doings)
+	local KEY = Enum.KeyCode.E
+	if stone and RayCheck(root.Position,stone,4.5,{workspace.Map},true,true) then
+		local tool = character:FindFirstChildOfClass("Tool")
+		local x = not (_G.CheckIfFlinching()) 
+		--and _G.CheckIfCan(character)
+
+		if _G.DoorOpenCheck and not _G.DoorOpenCheck() then x = false end
+		if tool and tool:FindFirstChild("CantDrop") and tool.CantDrop.Value then x = false end
+
+		local result = {}
+
+		if M.StoneCheck_shop ~= stone then
+			CancelDo(M.StoneCheck_shop)
+		end
+
+		M.StoneCheck_shop = stone
+
+		if x then
+			result[1] = {true,4,stone.posA,Color3.new(1,1,1),KEY,Events.PIC_S,{stone}}
+		else
+			result[1] = {false,4,stone.posA,Color3.new(0.5,0.5,0.5),KEY}
+		end
+
+		return result,1
+	else
+		CancelDo(M.StoneCheck_shop)
+	end
+end
+
+function M.VendingCheck()
+	local machine = modules.GetMP(root,vending_list,doings)
+	--print(atm,atm and RayCheck(root.Position,atm,4.5,true,true))
+	local KEY = Enum.KeyCode.E
+	if machine and math.acos(machine.CFrame.LookVector:Dot((root.Position-machine.Position).Unit)) < math.rad(80) and RayCheck(root.Position,machine,4.5,{workspace.Map},true,true) then
+		local tool = character:FindFirstChildOfClass("Tool")
+		local x = not (_G.CheckIfFlinching())
+		
+		if machine.Parent.Values.Busy.Value or machine.Parent.Values.Broken.Value or machine.Parent.Values.Stuck.Value then
+			x = false
+		elseif _G.DoorOpenCheck and not _G.DoorOpenCheck() then
+			x = false
+		end
+
+		local result = {}
+
+		if M.VendingCheck_machine and M.VendingCheck_machine ~= machine then
+			CancelDo(M.VendingCheck_machine)
+		end
+
+		M.VendingCheck_machine = machine
+
+		if x then
+			result[1] = {true,0,machine.posA,Color3.new(1,1,1),KEY,Events2.VendingMachine,{machine}}
+		else
+			result[1] = {false,0,machine.posA,Color3.new(0.5,0.5,0.5),KEY}
+		end
+
+		return result,1
+	else
+		CancelDo(M.VendingCheck_machine)
+	end
+end
+
+function M.ScrapDropCheck()
+	--local l = {}
+	--for _,v in pairs(workspace.Filter.SpawnedPiles:GetChildren()) do
+	--	if v.PrimaryPart then
+	--		table.insert(l,v.PrimaryPart)
+	--	end
+	--end
+	
+	local drop = modules.GetDrops(root,piles_list,doings,3,-1)
+	--print(atm,atm and RayCheck(root.Position,atm,4.5,true,true))
+
+	local KEY = Enum.KeyCode.E
+
+	if not (root and root.Parent) then return end
+
+	local rayCheck,rayPos
+
+	if drop then
+		rayCheck,rayPos = RayCheck(root.Position,drop,4,{workspace.Map.MysteryBoxes,workspace.Map.Parts;workspace.Map.Doors;workspace.Map.ATMz;workspace.Map.StreetLights;unpack(piles_list)},true,false)
+		if not rayCheck then
+			--rayCheck,rayPos = RayCheck(root.Parent.Head.Position,drop,5,{workspace.Map.Parts;workspace.Map.Doors;workspace.Map.ATMz;workspace.Map.StreetLights;workspace.Filter.SpawnedBread},true,false)
+		end
+	end
+	
+	if drop and rayPos and (rayCheck or (rayPos - drop.Position).Magnitude <= 0.1) then
+		local tool = character:FindFirstChildOfClass("Tool")
+		local x = not (_G.CheckIfFlinching())
+		
+		if _G.DoorOpenCheck and not _G.DoorOpenCheck() then x = false end
+	
+		local result = {}
+		
+		if M.ScrapDropCheck_drop ~= drop then
+			CancelDo(M.ScrapDropCheck_drop)
+		end
+		
+		M.ScrapDropCheck_drop = drop
+			
+		if x 
+			--and 
+			--mValues.Crouching.Value
+			--root.Position.Y - drop.Position.Y < 1.5 
+			--or (humanoid and humanoid.Parent and (mValues.Crouching.Value or humanoid:GetState() == Enum.HumanoidStateType.Swimming or humanoid:GetState() == Enum.HumanoidStateType.Climbing))
+			--or modules.WaterCheck2(drop)
+		then
+			--print(drop:GetFullName())
+			
+			--local zz = {drop}
+			local n = drop.Parent:GetAttribute("jzu")
+			
+			local customOpenTime = drop.Parent:GetAttribute("cot_")
+			local zz = {n and string.reverse(n)}
+			
+			local isCrate = drop.Parent:GetAttribute("IsCrate")
+			
+			local EVNT=Events.PIC_PU
+			if drop:FindFirstChild("Interact") and drop:FindFirstChild("Interact"):IsA("RemoteEvent") then
+				EVNT = drop:FindFirstChild("Interact")
+			end
+			result[1] = {true,customOpenTime or 3,drop,Color3.new(1,1,1),KEY,EVNT,zz,_G.CheckIfCan(character,"Left Arm") and anims.pickup1 or anims.pickup2,(drop.Position.Y + 1 < root.Position.Y and humanoid:GetState() ~= Enum.HumanoidStateType.Swimming and humanoid:GetState() ~= Enum.HumanoidStateType.Climbing)}
+		else
+			result[1] = {false,3,drop,Color3.new(0.5,0.5,0.5),KEY}
+		end
+		
+		return result,1
+	else
+		CancelDo(M.ScrapDropCheck_drop)
+	end
+end
+
+function M.ToolDropCheck()
+	--local l = {}
+	--for _,v in pairs(workspace.Filter.SpawnedTools:GetChildren()) do
+	--	if v.PrimaryPart then
+	--		table.insert(l,v.PrimaryPart)
+	--	end
+	--end
+	local drop = modules.GetDrops(root,tool_list,doings,6,-1)
+	--print(atm,atm and RayCheck(root.Position,atm,4.5,true,true))
+
+	local KEY = Enum.KeyCode.E
+
+	if not (root and root.Parent) then return end
+
+	local rayCheck,rayPos
+
+	if drop then
+		rayCheck,rayPos = RayCheck(root.Position,drop,6,{workspace.Map.MysteryBoxes,workspace.Map.Parts;workspace.Map.Doors;workspace.Map.ATMz;workspace.Map.StreetLights;workspace.Filter.SpawnedTools},true,true)
+		if not rayCheck then
+			rayCheck,rayPos = RayCheck(root.Parent.Head.Position,drop,5,{workspace.Map.MysteryBoxes,workspace.Map.Parts;workspace.Map.Doors;workspace.Map.ATMz;workspace.Map.StreetLights;workspace.Filter.SpawnedTools},true,true)
+		end
+	end
+
+	--print("CDC",drop,rayCheck,rayPos)
+
+	if drop and rayPos and (rayCheck or (rayPos - drop.Position).Magnitude <= 0.1) then
+		local tool = character:FindFirstChildOfClass("Tool")
+		local x = not (_G.CheckIfFlinching())
+
+		if _G.DoorOpenCheck and not _G.DoorOpenCheck() then x = false end
+		
+		local result = {}
+
+		if M.ToolDropCheck_drop ~= drop then
+			CancelDo(M.ToolDropCheck_drop)
+		end
+
+		M.ToolDropCheck_drop = drop
+
+		if x 
+			--and 
+			--mValues.Crouching.Value
+			--root.Position.Y - drop.Position.Y < 1.5 
+			--or (humanoid and humanoid.Parent and (mValues.Crouching.Value or humanoid:GetState() == Enum.HumanoidStateType.Swimming or humanoid:GetState() == Enum.HumanoidStateType.Climbing))
+			--or modules.WaterCheck2(drop)
+		then
+			result[1] = {true,1,drop,Color3.new(1,1,1),KEY,Events.PIC_TLO,{drop},_G.CheckIfCan(character,"Left Arm") and anims.pickup1 or anims.pickup2,(drop.Position.Y + 1 < root.Position.Y and humanoid:GetState() ~= Enum.HumanoidStateType.Swimming and humanoid:GetState() ~= Enum.HumanoidStateType.Climbing)}
+		else
+			result[1] = {false,1,drop,Color3.new(0.5,0.5,0.5),KEY}
+		end
+
+		return result,1
+	else
+		CancelDo(M.ToolDropCheck_drop)
+	end
+end
+
+function M.CashDropCheck()
+	--print("CDC",1)
+	--local l = {}
+	--for _,v in pairs(workspace.Filter.SpawnedBread:GetChildren()) do
+	--	if v:IsA("BasePart") and v:FindFirstChild("Value") then
+	--		table.insert(l,v)
+	--	end
+	--end
+	local drop = modules.GetDrops(root,cash_list,doings,6,-1)
+	--print(atm,atm and RayCheck(root.Position,atm,4.5,true,true))
+
+	local KEY = Enum.KeyCode.E
+
+	if not (root and root.Parent) then return end
+	
+	--print("CDC",2)
+
+	local rayCheck,rayPos
+
+	if drop then
+		rayCheck,rayPos = RayCheck(root.Position,drop,6,{workspace.Map.MysteryBoxes,workspace.Map.Parts;workspace.Map.Doors;workspace.Map.ATMz;workspace.Map.StreetLights;workspace.Filter.SpawnedBread},true,false)
+		if not rayCheck then
+			rayCheck,rayPos = RayCheck(root.Parent.Head.Position,drop,5,{workspace.Map.MysteryBoxes,workspace.Map.Parts;workspace.Map.Doors;workspace.Map.ATMz;workspace.Map.StreetLights;workspace.Filter.SpawnedBread},true,false)
+		end
+	end
+	
+	--print("CDC",drop,rayCheck,rayPos)
+
+	if drop and rayPos and (rayCheck or (rayPos - drop.Position).Magnitude <= 0.1) then
+		--print("CDC",3)
+		local tool = character:FindFirstChildOfClass("Tool")
+		local x = not (_G.CheckIfFlinching())
+		
+		if _G.DoorOpenCheck and not _G.DoorOpenCheck() then x = false end
+	
+		local result = {}
+		
+		if drop.Parent ~= workspace.Filter.SpawnedBread then
+			drop = drop.Parent
+		end
+		
+		--print("CDC",4)
+		
+		if M.CashDropCheck_drop ~= drop then
+			CancelDo(M.CashDropCheck_drop)
+		end
+		
+		--print("CDC",5)
+		
+		M.CashDropCheck_drop = drop
+		if x 
+			--and 
+			--mValues.Crouching.Value
+			--root.Position.Y - drop.Position.Y < 1.5 
+			--or (humanoid and humanoid.Parent and (mValues.Crouching.Value or humanoid:GetState() == Enum.HumanoidStateType.Swimming or humanoid:GetState() == Enum.HumanoidStateType.Climbing))
+			--or modules.WaterCheck2(drop)
+		then
+			result[1] = {true,1,drop,Color3.new(1,1,1),KEY,Events.CZDPZUS,{drop},_G.CheckIfCan(character,"Left Arm") and anims.pickup1 or anims.pickup2,(drop.Position.Y + 1 < root.Position.Y and humanoid:GetState() ~= Enum.HumanoidStateType.Swimming and humanoid:GetState() ~= Enum.HumanoidStateType.Climbing)}
+		else
+			result[1] = {false,1,drop,Color3.new(0.5,0.5,0.5),KEY}
+		end
+		
+		--print("CDC",6)
+		
+		return result,1
+	else
+		CancelDo(M.CashDropCheck_drop)
+	end
+end
+
+function M.GetExtrasCheck()
+	local l = {}
+	local l2 = {}
+	for _,v in pairs(extras) do
+		if v[1] and v[1].Parent and v[1]:IsA("BasePart") then
+			table.insert(l,v[1])
+			l2[v[1]] = {v[1],v[2],v[3],v[4],v[5],v[6],v[7]}
+		end
+	end
+	
+	local drop = modules.GetDrops(root,l,doings,5,0)
+	--print(atm,atm and RayCheck(root.Position,atm,4.5,true,true))
+	
+	if not (root and root.Parent) then return end
+	
+	local rayCheck,rayPos
+	
+	if drop then
+		rayCheck,rayPos = (RayCheck(root.Position,drop,6,l,true,false))
+		if not raycheck then
+			rayCheck,rayPos = (RayCheck(root.Parent.Head.Position,drop,6,l,true,false))
+		end
+	end
+	
+	if drop and (RayCheck or (rayPos - drop.Position).Magnitude <= 1.5) then
+		local tool = character:FindFirstChildOfClass("Tool")
+		local x = not (_G.CheckIfFlinching())
+		
+		local res = l2[drop]
+		local KEY = res[5]
+		
+		if _G.DoorOpenCheck and not _G.DoorOpenCheck() then x = false end
+		
+		local result = {}
+		
+		if M.ExtraDrop_drop ~= drop then
+			CancelDo(M.ExtraDrop_drop)
+		end
+		
+		M.ExtraDrop_drop = drop
+
+		local tim = res[4] or 0 
+		
+		local custom = true
+		
+		if res[6] then
+			custom = res[6]()
+		end
+		
+		if x 
+			--and 
+			--mValues.Crouching.Value
+			--root.Position.Y - drop.Position.Y < 1.5 
+			--or (humanoid and humanoid.Parent and (mValues.Crouching.Value or humanoid:GetState() == Enum.HumanoidStateType.Swimming or humanoid:GetState() == Enum.HumanoidStateType.Climbing))
+			--or modules.WaterCheck2(drop)
+		then
+			result[1] = {true,tim,drop,Color3.new(1,1,1),KEY,res[2],res[3],_G.CheckIfCan(character,"Left Arm") and anims.pickup1 or anims.pickup2}
+		else
+			result[1] = {false,tim,drop,Color3.new(0.5,0.5,0.5),KEY}
+		end
+		
+		return result,1
+	else
+		CancelDo(M.ExtraDrop_drop)
+	end
+end
+
+function M.MysteryBoxCheck()
+	--local l = {}
+	--for _,v in pairs(workspace.Filter.SpawnedTools:GetChildren()) do
+	--	if v.PrimaryPart then
+	--		table.insert(l,v.PrimaryPart)
+	--	end
+	--end
+	local drop = modules.GetMP(root,mystery_list,doings)
+	--print(atm,atm and RayCheck(root.Position,atm,4.5,true,true))
+	
+	--print("mbc",mystery_list,drop)
+
+	local KEY = Enum.KeyCode.E
+
+	if not (root and root.Parent) then return end
+
+	local rayCheck,rayPos
+
+	if drop and math.acos(drop.CFrame.LookVector:Dot((root.Position-drop.Position).Unit)) < math.rad(120) then
+		rayCheck,rayPos = RayCheck(root.Position,drop,6,{workspace.Map.MysteryBoxes,workspace.Map.Parts;workspace.Map.Doors;workspace.Map.ATMz;workspace.Map.StreetLights;workspace.Filter.SpawnedTools},true,true)
+		if not rayCheck then
+			--rayCheck,rayPos = RayCheck(root.Parent.Head.Position,drop,5,{workspace.Map.MysteryBoxes,workspace.Map.Parts;workspace.Map.Doors;workspace.Map.ATMz;workspace.Map.StreetLights;workspace.Filter.SpawnedTools},true,true)
+		end
+	end
+
+	--print("CDC",drop,rayCheck,rayPos)
+
+	if drop and rayPos and (rayCheck or (rayPos - drop.Position).Magnitude <= 0.1) then
+		--local tool = character:FindFirstChildOfClass("Tool")
+		local x = not (_G.CheckIfFlinching())
+
+		if _G.DoorOpenCheck and not _G.DoorOpenCheck() then x = false end
+
+		local result = {}
+
+		if M.MysteryBoxCheck_drop ~= drop then
+			CancelDo(M.MysteryBoxCheck_drop)
+		end
+
+		M.MysteryBoxCheck_drop = drop
+
+		local model = drop.Parent
+		local can = true
+		local a = "PosA"
+		
+		local cm = "Buy"
+		
+		
+		local t = 0
+		
+		if model.Values.Active.Value then
+			if model.Values.Open.Value then
+				--t = 1
+				cm = "Take"
+				a = "PosB"
+				if not model.Values.CanTake.Value or model.Values.UsePlayer.Value ~= plr then
+					CancelDo(M.MysteryBoxCheck_drop)
+					return nil
+					--can = false
+				end
+			elseif not model.Values.Open.Value and model.Values.Busy.Value then
+				can = false
+			end
+			
+			if not x then
+				can = false
+			end
+			
+			if x and can then
+				result[1] = {true,t,drop[a],Color3.new(1,1,1),KEY,Events2.MysteryBoxInteract,{drop,cm}}
+			else
+				result[1] = {false,0,drop[a],Color3.new(0.5,0.5,0.5),KEY}
+			end	
+			
+			return result,1
+		else
+			CancelDo(M.MysteryBoxCheck_drop)
+			return nil
+		end
+	else
+		CancelDo(M.MysteryBoxCheck_drop)
+	end
+end
+
+
+
+
+
+
+
+
+
+
+local function RemoveGuiCon(parent,code)
+	local tab = actives[parent]
+	if tab then
+		if code and tab[10] ~= code then
+			return
+		end
+		
+		if typeof(tab[12]) == "function" then
+			pcall(tab[12])
+		end
+		
+		if tab[11] and tab[11].Parent then
+			tab[11]:Destroy()
+		end
+	
+		actives[parent] = nil
+	end
+end
+
+local function IsValid()
+	return humanoid and humanoid.Parent and humanoid.Health > 0
+end
+
+local function AddGuiCon(parent,i,tab,func)
+	local existingPrompt
+	
+	if actives[parent] then
+		if typeof(actives[parent][12]) == "function" then
+			actives[parent][12]()
+		end
+		existingPrompt = actives[parent][11]
+	end
+	
+	
+	--RemoveGuiCon(parent)
+
+	local active =	tab[1]
+	local tim = 	tab[2]
+	local parent =	tab[3]
+	local color =	tab[4]
+	local key =		tab[5]
+	local event =	tab[6]
+	local args =	tab[7]
+	local toggle =	tab[8]
+	local doCrouch = tab[9]
+	
+	local prompt = existingPrompt or guis[1]:Clone()
+	
+	prompt:SetAttribute("Color3",color)
+
+	prompt.Parent = parent
+	--gui.Adornee = parent
+
+	prompt.KeyboardKeyCode = key
+	--label.Text = KeyTxt(key)
+
+	-- label.TextColor3 = color
+	--hold_label.TextColor3 = color
+
+	if tim <= 0 then
+		--hold_label.Visible = false
+		--label.Size = UDim2.new(1,0,1,0)
+		--label.Position = UDim2.new(0,0,0,0)
+	else
+		--hold_label.Visible = true
+		--label.Size = UDim2.new(1,0,0.85,0)
+		--label.Position = UDim2.new(0,0,0.215,0)
+	end
+	prompt.HoldDuration = tim
+
+	prompt.Enabled = true
+
+	local e = {}
+	e = {event,tim,args,parent,toggle,prompt,i,func,doCrouch}
+	
+	local gEvent = e[1]
+	local gTime = e[2]
+	local gArgs = e[3]
+	local gParent = e[4]
+	local gToggle = e[5]
+	local gGui = 	e[6]
+	local gIndex = e[7]
+	local gFunc = e[8]
+	local gDoCrouch = e[9]
+	
+	local function Fire()
+		if not IsValid() then return end
+		
+		if gEvent and gTime and gArgs and gParent and gGui and not busys[gParent] then
+			local function ToggleType()
+				if _G.CheckIfCan(character,"Left Arm") then
+					return anims.toggle2
+				else
+					return anims.toggle1
+				end
+			end
+			
+			if gEvent.Name ~= "PIC_CI" and gEvent.Name ~= "PIC_S" then
+				local toggleAnim = gToggle or ToggleType()
+				toggleAnim:Play(0.1)
+			end
+
+			if gEvent:IsA("RemoteEvent") then
+				gEvent:FireServer(unpack(gArgs))
+			elseif gEvent:IsA("BindableEvent") then
+				gEvent:Fire(unpack(gArgs))		
+			end
+
+			busys[gParent] = true
+			delay(0.25,function()
+				pcall(function()
+					busys[gParent] = nil
+				end)
+			end)
+		end	
+	end
+	
+	local holding = false
+	local a = nil
+	
+	local function Triggered()
+		holding = false
+
+		if not active then return end
+		
+		if a then
+			a:Stop(0.05)
+			a = nil
+		end
+		
+		Fire()
+	end
+	
+	local function TriggerEnded()
+		holding = false
+	end
+	
+	local function TriggerHoldEnd()
+		if holding then
+			anims.grabbing1:Stop(0.15)
+			anims.grabbing2:Stop(0.15)
+			anims.openloop:Stop(0.15)
+			if gEvent.Name == "PIC_S" then
+				gEvent:FireServer("End")
+			end
+		end
+		holding = false
+	end
+	
+	local function TriggerHoldStart()
+		if not active then return end
+		
+		holding = true
+		
+		if a then
+			a:Stop(0.05)
+		end
+		
+		--if gParent.Parent:GetAttribute("IsCrate") then
+		--	a = anims.openloop
+		--else
+			a = anims.grabbing1
+			if not _G.CheckIfCan(character,"Left Arm") then
+				a = anims.grabbing2
+			end
+		--end
+		
+		if gEvent.Name == "PIC_S" then
+			gEvent:FireServer("Start")
+		end
+	
+		a:Play(0.15)
+
+		local fC = gDoCrouch and _G.AffectChar("FORCEC",gTime + 0.15)
+		
+		local t = tick()
+		while tick() - t < gTime and holding and prompt ~= nil and prompt.Parent do
+			if _G.CheckIfFlinching(character) then
+				prompt:InputHoldEnd()
+				TriggerHoldEnd()
+				break
+			end
+			RunService.Heartbeat:Wait()
+		end
+		if fC and fC.Parent then
+			fC:Destroy()
+		end
+		if a then
+			a:Stop(0.05)
+		end
+	end
+	
+	local con
+	con = prompt.AncestryChanged:Connect(function(_,parent)
+		if not parent then
+			con:Disconnect()
+			pcall(function()
+				if tab then
+					tab[12]()
+				end
+				TriggerHoldEnd()
+			end)
+		end
+	end)
+
+	local cons = {}
+	table.insert(cons,prompt.Triggered:Connect(Triggered))
+	table.insert(cons,prompt.TriggerEnded:Connect(TriggerEnded))
+	table.insert(cons,prompt.PromptButtonHoldBegan:Connect(TriggerHoldStart))
+	table.insert(cons,prompt.PromptButtonHoldEnded:Connect(TriggerHoldEnd))
+	
+	tab[10] = math.random()
+	
+	tab[11] = prompt
+	
+	tab[12] = function()
+		if cons then
+			for i,v in pairs(cons) do
+				if v then
+					v:Disconnect()
+				end
+			end
+		end
+		
+		pcall(TriggerEnded)
+		pcall(TriggerHoldEnd)
+		
+		cons = nil
+		e = nil
+		prompt = nil
+		Triggered = nil
+		TriggerEnded = nil
+		TriggerHoldEnd = nil
+		TriggerHoldStart = nil
+		Fire = nil
+		
+	end
+	
+	actives[parent] = tab
+	--if active then
+	--	--if tim <= 0 and gui.Frame.Bar.Size.X.Scale > 0 then
+	--	--	gui.Frame.Bar:TweenSize(UDim2.new(0,0,1,0),Enum.EasingDirection.Out,Enum.EasingStyle.Linear,0,true)
+	--	--end
+	--	events[key] = {event,tim,args,parent,toggle,prompt,i,func,doCrouch}
+	--	print("brteh",key)
+		
+	--else
+	--	--if gui.Frame.Bar.Size.X.Scale > 0 then
+	--	--	gui.Frame.Bar:TweenSize(UDim2.new(0,0,1,0),Enum.EasingDirection.Out,Enum.EasingStyle.Linear,0,true)
+	--	--end
+	--	doings[parent] = nil
+	--end
+end
+
+
+function Main()
+	--for _,v in pairs(guis) do
+	--	v.Parent = script
+	--	--v.Adornee = nil
+	--end
+	--events = {}
+	
+	if _G.ATM_Active or _G.Shop_Active or not _G.CheckIfCan(character,"Any") then 
+		for i,v in pairs(actives) do
+			RemoveGuiCon(i,v[10])
+		end
+		return 
+	end
+	
+	if not mValues or not mValues.Parent then
+		mValues = _G.GVF()
+	end
+	
+	if not mValues then return end
+	------------------------------------------------------------
+	
+	--local function onScreen(p)
+	--	local _, x = Camera:WorldToScreenPoint(p)
+	--	return x
+	--end
+	
+	local function GetInteract()
+		local tab = {
+			M.ATMCheck,
+			M.ShopCheck,
+			M.ProxCheck,
+			M.StoneCheck,
+			M.DoorCheck,
+			M.CashDropCheck,
+			M.ScrapDropCheck,
+			M.ToolDropCheck,
+			M.VendingCheck,
+			M.MysteryBoxCheck,
+			M.GetExtrasCheck
+		}
+		
+		local x,y
+		local dist = math.huge
+		
+		for i,v in pairs(tab) do
+			local a,b = v()
+			if a and a[1] then
+				
+				local posTing = a[1][3]
+				local p = (posTing:IsA("Attachment") and posTing.WorldPosition) or posTing.Position
+				
+				local mag = (p - root.Position).Magnitude
+				
+				a[9] = v
+				if mag < dist then
+					x,y = a,b
+					dist = mag
+				end
+			end
+		end
+		
+		return x,y
+	end
+	
+	local result,amount
+		
+	if not humanoid:GetAttribute("NoInteract") then
+		result,amount = GetInteract()
+	end
+		
+	local func = result and result[9]
+	
+	local gActives = {}
+	
+	if result then
+		updateMode = 2
+
+		for i = 1,amount do
+			local tab = result[i]
+			if tab then
+				local active =	tab[1]
+				local tim = 	tab[2]
+				local parent =	tab[3]
+				local color =	tab[4]
+				local key =		tab[5]
+				local event =	tab[6]
+				local args =	tab[7]
+				local toggle =	tab[8]
+				local doCrouch = tab[9]
+				
+				gActives[parent] = true
+				if (
+					not actives[parent])
+					or (actives[parent] and (actives[parent][1] ~= tab[1]))
+					then
+
+					--local gui = guis[i]
+					--local label = gui.Frame.Label
+					--local hold_label = gui.Frame.Hold
+
+					--gui.Parent = Camera
+					--gui.Adornee = parent
+
+					--label.Text = KeyTxt(key)
+					--label.TextColor3 = color
+					--hold_label.TextColor3 = color
+
+					--if tim <= 0 then
+					--	hold_label.Visible = false
+					--	label.Size = UDim2.new(1,0,1,0)
+					--	label.Position = UDim2.new(0,0,0,0)
+					--else
+					--	hold_label.Visible = true
+					--	label.Size = UDim2.new(1,0,0.85,0)
+					--	label.Position = UDim2.new(0,0,0.215,0)
+					--end
+
+					--gui.Enabled = true
+
+					--if active then
+					--	if tim <= 0 and gui.Frame.Bar.Size.X.Scale > 0 then
+					--		gui.Frame.Bar:TweenSize(UDim2.new(0,0,1,0),Enum.EasingDirection.Out,Enum.EasingStyle.Linear,0,true)
+					--	end
+					--	events[key] = {event,tim,args,parent,toggle,gui,i,func,doCrouch}
+					--else
+					--	if gui.Frame.Bar.Size.X.Scale > 0 then
+					--		gui.Frame.Bar:TweenSize(UDim2.new(0,0,1,0),Enum.EasingDirection.Out,Enum.EasingStyle.Linear,0,true)
+					--	end
+					--	doings[parent] = nil
+					--end
+					
+					AddGuiCon(parent,i,tab,func)
+				else
+					--print("NONOALREADYACTIVE!",parent)
+				end
+			end
+		end
+	else
+		updateMode = 1
+	end
+	
+	for i,v in pairs(actives) do
+		if not gActives[i] then
+			RemoveGuiCon(i,v[10])
+		end
+	end
+end
+
+local function MainDo(Input,xd)
+	local function IsValid()
+		return humanoid and humanoid.Parent and humanoid.Health > 0 and (xd or events[Input.KeyCode])
+	end
+	local e = IsValid()
+	
+	if not e then return end
+	
+	local gEvent = e[1]
+	local gTime = e[2]
+	local gArgs = e[3]
+	local gParent = e[4]
+	local gToggle = e[5]
+	local gGui = 	e[6]
+	local gIndex = e[7]
+	local gFunc = e[8]
+	local gDoCrouch = e[9]
+	
+	local function Fire()
+		if gEvent and gTime and gArgs and gParent and gGui and not busys[gParent] then
+			local function ToggleType()
+				if _G.CheckIfCan(character,"Left Arm") then
+					return anims.toggle2
+				else
+					return anims.toggle1
+				end
+			end
+
+			local toggleAnim = gToggle or ToggleType()
+			toggleAnim:Play(0.1)
+			
+			if gEvent:IsA("RemoteEvent") then
+				gEvent:FireServer(unpack(gArgs))
+			elseif gEvent:IsA("BindableEvent") then
+				gEvent:Fire(unpack(gArgs))		
+			end
+			
+			busys[gParent] = true
+			delay(0.25,function()
+				pcall(function()
+					busys[gParent] = nil
+				end)
+			end)
+		end	
+	end
+	
+	if gTime <= 0 then
+		Fire()
+	else
+		local c = math.random()
+		doings[gParent] = {c,gGui,Input.KeyCode}
+		
+		local t = tick()
+
+		local bruh = true
+		local a
+		local ye = false
+		local fC
+		
+		coroutine.wrap(function()
+			if gTime and gTime > 0 then
+				
+				if character:FindFirstChild("SpawnFF") then
+					character.SpawnFF:Destroy()
+				end
+				
+				a = anims.grabbing1
+				if not _G.CheckIfCan(character,"Left Arm") then
+					a = anims.grabbing2
+				end
+				a:Play(0.15)
+
+				fC = gDoCrouch and _G.AffectChar("FORCEC",gTime + 0.15)
+				
+				gGui.Frame.Bar:TweenSize(UDim2.new(1,0,1,0),Enum.EasingDirection.Out,Enum.EasingStyle.Linear,gTime,true)
+				
+				while tick() - t < gTime and doings[gParent] and doings[gParent][1] == c do
+					if _G.CheckIfFlinching(character) then
+						bruh = false
+						break
+					end
+					RunService.Heartbeat:Wait()
+				end
+			end
+			
+			anims.grabbing1:Stop(0.15)
+			
+		--delay(gTime,function()
+			if bruh and gParent and gParent.Parent and doings[gParent] and doings[gParent][1] == c then
+				local e2 = gFunc()
+				if e2 and typeof(e2) == "table" and e2[gIndex] and e2[gIndex][1] == true and e2[gIndex][3] == gParent then
+					ye = true
+					CancelDo(gParent)
+					Fire()
+				end
+			end
+			CancelDo(Input.KeyCode)
+		--end)
+		
+		if a then
+			a:Stop(ye and 0.05 or 0.15)
+		end
+		
+		if not ye and fC then
+			if fC and fC.Parent then
+				fC:Destroy()
+			end
+		end
+		
+		end)()
+	end
+end
+
+local function InputBegan(Input,iBusy)
+	--if iBusy then return end
+	
+	--pcall(Main)
+	
+	--MainDo(Input)
+end
+
+local function InputEnded(Input,iBusy)
+	--local KEY = Input.KeyCode
+	
+	--for i,v in pairs(doings) do
+	--	if v[3] == KEY then
+	--		CancelDo(i)
+	--		break
+	--	end
+	--end
+end
+
+local function newChar()
+	character =	plr.Character
+	if not (character and character.Parent) then return end
+	
+	_G.WaitForChar()
+	
+	actives = {}
+	
+	if not (character and character.Parent) then return end
+	
+	humanoid =	character:WaitForChild("Humanoid")
+	root =		character:WaitForChild("HumanoidRootPart")
+	
+	local function newAnim(n)
+		local dir = ReplicatedStorage.Storage.Animations
+		return humanoid:LoadAnimation(dir[n])
+	end
+	anims = {}
+	anims.toggle1 = 	newAnim("Toggle1")
+	anims.toggle2 = 	newAnim("Toggle2")
+	anims.pickup1 =	newAnim("Pickup1")
+	anims.pickup2 =	newAnim("Pickup2")
+	anims.grabbing1 =newAnim("Grabbing1")
+	anims.grabbing2 =newAnim("Grabbing2")
+	anims.openloop = newAnim("OpenLoop")
+	
+	anims.toggle1.Priority = Enum.AnimationPriority.Action
+	anims.toggle2.Priority = Enum.AnimationPriority.Action
+	anims.pickup1.Priority = Enum.AnimationPriority.Action
+	anims.pickup2.Priority = Enum.AnimationPriority.Action
+	anims.openloop.Priority = Enum.AnimationPriority.Action
+	anims.grabbing1.Priority = Enum.AnimationPriority.Action
+	anims.grabbing2.Priority = Enum.AnimationPriority.Action
+	
+	local con
+	local loop = true
+	con = character.AncestryChanged:Connect(function(_,parent)
+		if not parent then
+			loop = nil
+			con:Disconnect()
+		end
+	end)
+	
+	updateMode = 1
+	events = {}
+	busys = {}
+		
+	while loop do task.wait(0.05)
+		--	if (lastPos - root.Position).Magnitude > -1 then
+		local _s,_e = pcall(Main)
+		if not _s then
+			warn("IE:",_e)
+		end
+	--	end
+		lastPos = root.Position
+	end
+end
+
+local function SetUp()
+	local function Door_Setup()
+		local function x_d(v)
+			if v:WaitForChild("DFrame",2) ~= nil then
+				local DFrame = v.DFrame
+
+				table.insert(door_list,DFrame)
+
+				local con
+				con = DFrame.AncestryChanged:Connect(function(_,parent)
+					if not parent then
+						con:Disconnect()
+						for i,v in pairs(door_list) do
+							if v == DFrame then
+								table.remove(door_list,i)
+							end
+							
+						end
+						
+					end
+				end)
+			else
+				warn("No DFrame in door!")
+			end
+		end
+
+		for _,v in pairs(map.Doors:GetChildren()) do
+			spawn(function()
+				x_d(v)
+			end)
+		end
+		map.Doors.ChildAdded:Connect(x_d)
+	end
+	
+	local function ATM_Setup()
+		for _,v in pairs(map.ATMz:GetChildren()) do
+			if v:FindFirstChild("MainPart") then
+				table.insert(atm_list,v.MainPart)
+			else
+				warn("ATM: Not a MainPart!")
+			end
+		end
+	end
+
+	local function Shop_Setup()
+		for _,v in pairs(map.Shopz:GetChildren()) do
+			if v:FindFirstChild("MainPart") then
+				table.insert(shop_list,v.MainPart)
+			else
+				warn("Shop: Not a MainPart!")
+			end
+		end
+	end
+	
+	game:GetService("ReplicatedStorage"):WaitForChild("Events"):WaitForChild("NewDealer").OnClientEvent:Connect(function(v, m)
+		if m then
+			if v:FindFirstChild("MainPart") then
+				table.insert(shop_list,v.MainPart)
+			else
+				warn("Rebel: Not a MainPart!")
+			end
+		else
+			pcall(function()
+				table.remove(shop_list,v.MainPart)
+			end)
+		end
+	end)
+	
+	game:GetService("ReplicatedStorage"):WaitForChild("Events"):WaitForChild("NewSword").OnClientEvent:Connect(function(v, m)
+		if m then
+			if v:FindFirstChild("Handle") then
+				table.insert(stone_list,v.Handle)
+			else
+				warn("Sword: Not a Handle!")
+			end
+		else
+			pcall(function()
+				table.remove(stone_list,v.Handle)
+			end)
+		end
+	end)
+	
+	local function Prox_Setup()
+		for _,v in pairs(map.ProximityShops:GetChildren()) do
+			if v:FindFirstChild("MainPart") then
+				table.insert(prox_list,v.MainPart)
+			else
+				warn("Prox: Not a MainPart!")
+			end
+		end
+	end
+	
+	local function Stone_Setup()
+		for _,v in pairs(map.SlayerStones:GetChildren()) do
+			if v:FindFirstChild("Handle") then
+				table.insert(stone_list,v.Handle)
+			end
+		end
+	end
+	
+	local function Vending_Setup()
+		if map:FindFirstChild("VendingMachines") then
+			local function newMachine(v)
+				if v:FindFirstChild("MainPart") then
+					table.insert(vending_list,v.MainPart)
+				else
+					warn("VendingMachine: Not a MainPart!")
+				end
+			end
+			
+			for _,v in pairs(map.VendingMachines:GetChildren()) do
+				newMachine(v)
+			end
+			
+			map.VendingMachines.ChildAdded:Connect(newMachine)
+		end
+	end
+	
+	local function Piles_Setup()
+		local function newPile(v)
+			wait(0.1)
+			if v and v.Parent and v.ClassName == "Model" and v.PrimaryPart and not v:GetAttribute("IsLocked") then
+				local pp = v.PrimaryPart
+				table.insert(piles_list,pp)
+				
+				local con
+				con = pp.AncestryChanged:Connect(function(_,parent)
+					if not parent then
+						con:Disconnect()
+						local f = table.find(piles_list,pp)
+						if f then
+							table.remove(piles_list,f)
+						end
+					end
+				end)
+			end
+		end
+		
+		workspace.Filter.SpawnedPiles.ChildAdded:Connect(newPile)
+		for _,v in pairs(workspace.Filter.SpawnedPiles:GetChildren()) do
+			newPile(v)
+		end
+	end
+	
+	local function Cash_Setup()
+		local function newCash(v)
+			wait()
+			if v and v.Parent then
+				v:WaitForChild("Value",60)
+			end
+			if v and v.Parent and v:FindFirstChild("Value") then
+				table.insert(cash_list,v)
+
+				local con
+				con = v.AncestryChanged:Connect(function(_,parent)
+					if not parent then
+						con:Disconnect()
+						local f = table.find(cash_list,v)
+						if f then
+							table.remove(cash_list,f)
+						end
+					end
+				end)
+			end
+		end
+
+		workspace.Filter.SpawnedBread.ChildAdded:Connect(newCash)
+		for _,v in pairs(workspace.Filter.SpawnedBread:GetChildren()) do
+			newCash(v)
+		end
+	end
+	
+	local function Tools_Setup()
+		local function newTool(v)
+			wait()
+			if v and v.Parent and v.PrimaryPart then
+				local pp = v.PrimaryPart
+				table.insert(tool_list,pp)
+
+				local con
+				con = pp.AncestryChanged:Connect(function(_,parent)
+					if not parent then
+						con:Disconnect()
+						local f = table.find(tool_list,pp)
+						if f then
+							table.remove(tool_list,f)
+						end
+					end
+				end)
+			end
+		end
+
+		workspace.Filter.SpawnedTools.ChildAdded:Connect(newTool)
+		for _,v in pairs(workspace.Filter.SpawnedTools:GetChildren()) do
+			newTool(v)
+		end
+	end
+	
+	local function Mystery_SetUp()
+		if map:WaitForChild("MysteryBoxes",2) then
+			local function newBox(v)
+				RunService.Heartbeat:Wait()
+				if v:FindFirstChild("MainPart") then
+					table.insert(mystery_list,v.MainPart)
+				else
+					warn("MysteryBox: Not a MainPart!")
+				end
+			end
+			
+			for _,v in pairs(map.MysteryBoxes:GetChildren()) do
+				newBox(v)
+			end
+			
+			map.MysteryBoxes.ChildAdded:Connect(newBox)
+		end
+	end
+
+	Door_Setup()
+	ATM_Setup()
+	Shop_Setup()
+	Prox_Setup()
+	Piles_Setup()
+	Cash_Setup()
+	Stone_Setup()
+	Tools_Setup()
+	Vending_Setup()
+	spawn(Mystery_SetUp)
+	
+	Events2.AddExtraInteract.Event:Connect(function(part,returnEvent,args,tim,key,customFunc)
+		if not (part and part:IsA("BasePart") or extras[part]) then return end
+
+		extras[part] = {part,returnEvent,args,tim,key,customFunc}
+
+		local con
+		con = part.AncestryChanged:Connect(function(_,parent)
+			if not parent then
+				extras[part] = nil
+				con:Disconnect()
+			end
+		end)
+	end)
+
+	plr.CharacterAdded:Connect(newChar)
+
+	UIS.InputBegan:Connect(InputBegan)
+	UIS.InputEnded:Connect(InputEnded)
+
+	newChar()
+end
+
+SetUp()
