@@ -1,0 +1,682 @@
+local TweenService = game:GetService("TweenService")
+local ServerStorage = game:GetService("ServerStorage")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local grabbedSubject = {}
+
+local tool = script.Parent
+
+local mainDir = ServerStorage.Storage.ForceChokeDirectory
+local dir = mainDir.Stuff
+
+repeat task.wait(0.15) until script.Parent.Parent.Parent:IsA("Player")
+local originalPlr = script.Parent.Parent.Parent
+
+local FOV_START = -15 -- choking/ damage
+local FOV_ZAP = 30; -- zapping
+local FOV_DMG_MULTI = 0.4
+local CHOKE_VOLUME = 3.5;
+
+local IS_RED = false
+
+--local function NeckSnap(v,plr)
+	--print("snap",v)
+
+--	if plr then
+--		_G.TagChar(v,plr,30,0,nil,"[REDACTED]",0)
+--	end
+
+--	if grabbedSubject[v].vf then
+--		grabbedSubject[v].vf.Handcuffed.Value = false
+--	end
+
+--	local m = nil
+
+--	if grabbedSubject[v].ZapScreamingSound and grabbedSubject[v].ZapScreamingSound.Parent then
+--		grabbedSubject[v].ZapScreamingSound:Destroy()
+--		grabbedSubject[v].ZapScreamingSound = nil
+--	end
+
+--	if v.Humanoid.Health > 0 then
+--		local _vf = _G.GVF(v.Name)
+--		if _vf then
+--			if _vf and _vf.HealthValues.Head.Broken.Value then
+--				m = true
+--			end
+
+--			ServerStorage.Events3.LimbTing:Fire(v,"break","n",nil,m)
+--		else
+--			v.Humanoid:TakeDamage(1000)
+--		end
+--	end	
+--end
+
+local function Ragdoll(v)
+	_G.SMains.RagdollChar(v,1)
+end
+
+local function Damage(v,amt,isZap)
+	if not (grabbedSubject[v] and grabbedSubject[v].char.Parent and grabbedSubject[v].char:FindFirstChild("Humanoid")) then
+		return
+	end
+
+	amt *= (math.random(90,210) / 100)
+
+	local canDmg = true
+	if _G.DownedCheck and _G.DownedCheck(grabbedSubject[v].char) then
+		canDmg = false
+	elseif grabbedSubject[v].char.Humanoid.Health - amt <= 0 then
+		canDmg = false
+	end
+
+	if _G.DownedCheck and _G.DownedCheck(v) then
+		Ragdoll(v,2)
+	end
+
+	--if not canDmg then
+	--	return
+	--end
+
+	if not canDmg then
+		amt /= 10
+	end
+
+	grabbedSubject[v].dmg += amt
+	grabbedSubject[v].anim:AdjustSpeed(math.max(grabbedSubject[v].dmg * 0.02,1))
+	grabbedSubject[v].coughS.Pitch += 0.001
+	grabbedSubject[v].chokeLoopS.Pitch += 0.0125
+	grabbedSubject[v].chokeLoopS.Volume += 0.01
+
+	if v:FindFirstChild("Humanoid") and v.Humanoid.Health > 0 and v.Humanoid.Health - amt <= 0 then
+		if grabbedSubject[v].vf then
+			grabbedSubject[v].vf.Handcuffed.Value = false
+		end
+		
+		if not isZap then
+			local s = dir.Crack:Clone()
+			game.Debris:AddItem(s,5)
+			s.Parent = v.Head
+			s:Play()
+		end
+
+		if grabbedSubject[v].ZapScreamingSound and grabbedSubject[v].ZapScreamingSound.Parent then
+			grabbedSubject[v].ZapScreamingSound:Destroy()
+			grabbedSubject[v].ZapScreamingSound = nil
+		end
+	end
+
+	local v2 = grabbedSubject[v]
+
+	if v2 and v2.fovV then
+		if v2.fovT then
+			v2.fovT:Cancel()
+		end
+		v2.fovT = TweenService:Create(v2.fovV,TweenInfo.new(5,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Value = FOV_START + (grabbedSubject[v].dmg * FOV_DMG_MULTI)})
+		v2.fovT:Play()
+		grabbedSubject[v] = v2
+	end
+
+	grabbedSubject[v].char.Humanoid:TakeDamage(amt)
+end
+
+local function ZapSubject(v,zapperChar)
+	if not (grabbedSubject[v] and grabbedSubject[v].char.Parent and grabbedSubject[v].char:FindFirstChild("Humanoid")) then
+		return
+	end
+	
+	tool:SetAttribute("NoArmMovement",nil)
+
+	grabbedSubject[v].isZapping = true
+	grabbedSubject[v].zapParticles = {}
+	grabbedSubject[v].zapBeamAttachments = {}
+	grabbedSubject[v].zapSounds = {}
+	local bp = {
+		"Head";
+		"Left Arm";
+		"Right Arm";
+		"Torso";
+		"Left Leg";
+		"Right Leg";
+	}
+
+	for i,partName in pairs(bp) do
+		local p = grabbedSubject[v].char:FindFirstChild(partName)
+		if p then
+			if partName == "Torso" then
+				local p1 = dir.ZapStuff.GlowP:Clone()
+				local p2 = dir.ZapStuff.Lightning2P:Clone()
+				local p3 = dir.ZapStuff.PointLightP:Clone()
+				table.insert(grabbedSubject[v].zapParticles,p1)
+				table.insert(grabbedSubject[v].zapParticles,p2)
+				table.insert(grabbedSubject[v].zapParticles,p3)
+
+				p1.Parent = p
+				p2.Parent = p
+				p3.Parent = p
+				
+				if IS_RED then
+					p1.Color = ColorSequence.new(Color3.fromRGB(116, 14, 14))
+					p2.Color = ColorSequence.new(Color3.new())
+					p2.LightEmission = 0
+					
+					
+					p3.Color = Color3.fromRGB(95, 11, 11)
+				end
+
+				p1.Enabled = true
+				p2.Enabled = true
+				p3.Enabled = true
+			else
+				local p1 = dir.ZapStuff.LightningP:Clone()
+				table.insert(grabbedSubject[v].zapParticles,p1)
+				
+				if IS_RED then
+					p1.Color = ColorSequence.new(Color3.fromRGB(255,30,30))
+					p1.Color = ColorSequence.new(Color3.new())
+					p1.LightEmission = 0
+				end
+
+				p1.Parent = p
+				p1.Enabled = true
+			end
+		end
+	end
+
+	local sourceBeamAttachment = Instance.new("Attachment")
+	local victimBeamAttachment = Instance.new("Attachment")
+
+	table.insert(grabbedSubject[v].zapBeamAttachments,sourceBeamAttachment)
+	table.insert(grabbedSubject[v].zapBeamAttachments,victimBeamAttachment)
+
+	sourceBeamAttachment.Position = Vector3.new(0,-1,0)
+	sourceBeamAttachment.Parent = zapperChar:FindFirstChild("Right Arm")
+	victimBeamAttachment.Position = Vector3.new(0,0,0)
+	victimBeamAttachment.Parent = grabbedSubject[v].char.Torso
+
+	local beam = dir.ZapStuff.Beam0:Clone()
+	
+	if IS_RED then
+		beam.Color = ColorSequence.new(Color3.new())
+		beam.LightEmission = 0
+	end
+	
+	beam.Attachment0 = sourceBeamAttachment
+	beam.Attachment1 = victimBeamAttachment
+	beam.Parent = zapperChar.HumanoidRootPart
+	beam.Enabled = true
+	grabbedSubject[v].zapBeam = beam
+
+	local zapStartSound = dir.ZapStuff.ZapStart:Clone()
+	local zapLoopSound = dir.ZapStuff.ZapLoop:Clone()
+
+	table.insert(grabbedSubject[v].zapSounds,zapStartSound)
+	table.insert(grabbedSubject[v].zapSounds,zapLoopSound)
+
+	zapStartSound.Parent = grabbedSubject[v].char.Torso
+	zapLoopSound.Parent = grabbedSubject[v].char.Torso
+
+	zapStartSound:Play()
+
+	zapLoopSound:Play()
+
+	if grabbedSubject[v].char.Humanoid.Health > 0 then
+		local zapScreamSound = dir.ZapStuff.ZapScreaming:Clone()
+		grabbedSubject[v].ZapScreamingSound = zapScreamSound
+		zapScreamSound.Parent = grabbedSubject[v].char.Head
+		zapScreamSound:Play()
+		zapScreamSound.TimePosition = math.random(1,300) / 100
+	end
+
+	local anim = grabbedSubject[v].char.Humanoid:LoadAnimation(dir.ZapStuff.ZapAnimation)
+	anim.Priority = Enum.AnimationPriority.Action4
+	anim:Play(0.1,0.65,2)
+	anim.TimePosition = math.random(1,30) / 10
+
+	grabbedSubject[v].zapAnimation = anim
+
+	if grabbedSubject[v].vf  then
+		local fovV2 = Instance.new("NumberValue")
+		grabbedSubject[v].fovV2 = fovV2
+		fovV2.Value = FOV_ZAP - 10
+		fovV2.Parent = grabbedSubject[v].vf.FOVs
+
+		grabbedSubject[v].fovV2_T = TweenService:Create(fovV2,TweenInfo.new(0.05,Enum.EasingStyle.Linear,Enum.EasingDirection.InOut,math.huge,true,0),{Value = FOV_ZAP})
+		grabbedSubject[v].fovV2_T:Play()
+
+		local poisV = Instance.new("NumberValue")
+		grabbedSubject[v].FLAMESKRATA = poisV
+
+		poisV.Name = "FLAMESKRATA"
+		poisV:SetAttribute("NoIcon",true)
+		poisV.Value = 1
+		poisV.Parent = grabbedSubject[v].vf.Currents
+	end
+end
+
+local function UnZapSubject(v)
+	if not (grabbedSubject[v] and grabbedSubject[v].isZapping) then
+		return
+	end
+	tool:SetAttribute("NoArmMovement",true)
+	
+	grabbedSubject[v].isZapping = false
+	for i,v in pairs(grabbedSubject[v].zapParticles) do
+		if v and v.Parent then
+			v.Enabled = false
+			game.Debris:AddItem(v,1)
+		end
+	end
+	if grabbedSubject[v].zapBeam and grabbedSubject[v].zapBeam.Parent then
+		grabbedSubject[v].zapBeam:Destroy()
+	end
+	for i,v in pairs(grabbedSubject[v].zapBeamAttachments) do
+		if v and v.Parent then
+			v:Destroy()
+		end
+	end
+
+	for i,v in pairs(grabbedSubject[v].zapSounds) do
+		if v and v.Parent then
+			game.Debris:AddItem(v,2)
+			TweenService:Create(v,TweenInfo.new(1,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Pitch = -0.2;Volume = -0.1;EmitterSize = 0}):Play()
+		end
+	end
+
+	local zs = grabbedSubject[v].ZapScreamingSound
+	if zs and zs.Parent then
+		game.Debris:AddItem(zs,2.5)
+		TweenService:Create(zs,TweenInfo.new(2,Enum.EasingStyle.Sine,Enum.EasingDirection.In),{EmitterSize = 0;Volume = 0}):Play()
+	end
+
+	local fovv2 = grabbedSubject[v].fovV2
+	if fovv2 then
+		if grabbedSubject[v].fovV2_T then
+			grabbedSubject[v].fovV2_T:Cancel()
+		end
+		game.Debris:AddItem(fovv2,5)
+		fovv2 = TweenService:Create(fovv2,TweenInfo.new(5,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Value = 0})
+		fovv2:Play()
+	end
+
+	local FLAMESKRATA = grabbedSubject[v].FLAMESKRATA
+	if FLAMESKRATA and FLAMESKRATA.Parent then
+		FLAMESKRATA:Destroy()
+	end
+
+	grabbedSubject[v].zapAnimation:Stop(0.5)
+	grabbedSubject[v].FLAMESKRATA = nil
+	grabbedSubject[v].ZapScreamingSound = nil
+	grabbedSubject[v].zapAnimation = nil	
+	grabbedSubject[v].zapParticles = nil
+	grabbedSubject[v].zapBeamAttachments = nil
+	grabbedSubject[v].zapSounds = nil
+	grabbedSubject[v].zapBeam = nil
+	grabbedSubject[v].fovV2 = nil
+end
+
+local function Release(v)
+	if grabbedSubject[v] and grabbedSubject[v].dmg >= 25 then
+		Ragdoll(v)
+	end
+	
+	UnZapSubject(v.char)
+
+	v.anim:Stop(0.5)
+	local p = game.Players:GetPlayerFromCharacter(v.char)
+	v.char.HumanoidRootPart:SetNetworkOwner(p or nil)
+
+	if v.coughS and v.coughS.Parent then
+		game.Debris:AddItem(v.coughS,3)
+		TweenService:Create(v.coughS,TweenInfo.new(2,Enum.EasingStyle.Sine,Enum.EasingDirection.In,0,false,1),{Volume = 0}):Play()
+	end
+
+	if v.chokeLoopS and v.chokeLoopS.Parent then
+		v.chokeLoopS:SetAttribute("Done",true)
+		game.Debris:AddItem(v.chokeLoopS,5)
+		TweenService:Create(v.chokeLoopS,TweenInfo.new(2,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Pitch = 0;Volume = v.chokeLoopS.Volume * 3.5}):Play()
+	end
+
+	if v.vf then
+		v.vf.Handcuffed.Value = false
+	end
+
+	if v.fovV then
+		if v.fovT then
+			v.fovT:Cancel()
+		end
+		game.Debris:AddItem(v.fovV,5)
+		v.fovT = TweenService:Create(v.fovV,TweenInfo.new(5,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Value = 0})
+		v.fovT:Play()
+	end
+
+	if v.fovV2 then
+		if v.fovT2 then
+			v.fovT2:Cancel()
+		end
+		game.Debris:AddItem(v.fovV2,5)
+		v.fovT2 = TweenService:Create(v.fovV2,TweenInfo.new(5,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Value = 0})
+		v.fovT2:Play()
+	end
+
+	if v.inst then
+		for i,z in pairs(v.inst) do
+			if z.Parent then
+				z:Destroy()
+			end
+		end
+	end
+	if v.con then
+		v.con:Disconnect()
+	end
+
+	for i,v in pairs(v.char:GetDescendants()) do
+		if v:IsA("BasePart") then
+			v:SetAttribute("NoNetworkOwnerSet",nil)
+		end
+	end
+
+	v.char:SetAttribute("HAS_NETWORK_OWNERSHIP_CONTROLLED",nil)
+	
+	if v.ancestryCon then
+		v.ancestryCon:Disconnect()
+	end
+
+	--print("released",v)
+end
+
+tool.RemoteFunction.OnServerInvoke = function(plr,mode,arg,arg2,arg3)
+	if plr ~= originalPlr then return end
+	
+	if mode == "Grab" then
+		if grabbedSubject[arg] then
+			return
+		end
+		if typeof(arg) == "Instance" and not arg:FindFirstChildOfClass("ForceField") and arg:FindFirstChild("Humanoid") and arg.Humanoid.Health > 0 and arg:FindFirstChild("HumanoidRootPart") and arg.HumanoidRootPart:CanSetNetworkOwnership() then
+			arg.HumanoidRootPart:SetNetworkOwner(plr)	
+
+			arg:SetAttribute("HAS_NETWORK_OWNERSHIP_CONTROLLED",true)
+
+			local anim = arg.Humanoid:LoadAnimation(dir.ChokeAnim)
+			anim.Priority = Enum.AnimationPriority.Action3
+			anim:Play(0.2,1,0.75)
+			anim.TimePosition = math.random(1,70) / 10
+
+			if arg.Head:FindFirstChild("Coughing3") then
+				arg.Head.Coughing3:Destroy()
+			end
+
+			local coughS = dir.Coughing3:Clone()
+			coughS.Pitch *= math.random(90,110) / 100
+			coughS.TimePosition = math.random(0,15)
+			coughS.Volume = 0
+			coughS.Parent = arg.Head
+			coughS:Play()
+
+			local chokeStartS = dir.chokestart:Clone()
+			game.Debris:AddItem(chokeStartS,3)
+			chokeStartS.Volume = CHOKE_VOLUME
+			chokeStartS.Pitch *= math.random(90,110) / 100
+			chokeStartS.Parent = arg.HumanoidRootPart
+			chokeStartS:Play()
+
+			local chokeLoopS = dir.chokeloop:Clone()
+			game.Debris:AddItem(chokeStartS,3)
+			chokeLoopS.Pitch *= math.random(90,110) / 100
+			chokeLoopS.Parent = arg.HumanoidRootPart
+			chokeLoopS:Play()
+
+			for i,v in pairs(arg:GetDescendants()) do
+				if v:IsA("BasePart") then
+					v:SetAttribute("NoNetworkOwnerSet",true)
+				end
+			end
+
+			_G.TagChar(arg,plr,60,0,nil,"[REDACTED]",0)
+
+			TweenService:Create(coughS,TweenInfo.new(1,Enum.EasingStyle.Quint,Enum.EasingDirection.InOut,0,false,0.5),{Volume = 1}):Play()
+
+			local hitPlr = game.Players:GetPlayerFromCharacter(arg)
+			if hitPlr then
+				ReplicatedStorage.Events.PEP_H:FireClient(hitPlr,0.1,0.25)
+			end
+
+			local vf = _G.GVF(arg.Name)
+			local inst = {}
+			local fovV,fovT
+			if vf then
+				vf.Handcuffed.Value = true
+				table.insert(inst,_G.AffectChar(arg,"CM",math.huge))
+				table.insert(inst,_G.AffectChar(arg,"JR",math.huge,"WKVL2",1000))
+				table.insert(inst,_G.AffectChar(arg,"AC",math.huge))
+				table.insert(inst,_G.AffectChar(arg,"AS",math.huge))
+				table.insert(inst,_G.AffectChar(arg,"B",math.huge))
+
+				local vv = Instance.new("BoolValue")
+				vv.Name = "IGZNFD"
+				vv.Parent = vf.Currents
+
+				table.insert(inst,vv)
+
+
+				fovV = Instance.new("NumberValue")
+				fovV.Value = 0
+				fovV.Parent = vf.FOVs
+
+				fovT = TweenService:Create(fovV,TweenInfo.new(5,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Value = FOV_START})
+				fovT:Play()
+			end
+			arg.Humanoid:UnequipTools()
+
+			local con
+			con = arg.Humanoid.Died:Connect(function()
+				pcall(function()
+					vf.Handcuffed.Value = false
+				end)
+
+				con:Disconnect()
+
+				pcall(function()
+					anim:Stop(0.25)
+				end)
+				if coughS and coughS.Parent then
+					coughS:Destroy()
+				end
+
+				local v = grabbedSubject[v]
+				if v and v.fovV then
+					v.fovV = nil
+					if v.fovT then
+						v.fovT:Cancel()
+					end
+					game.Debris:AddItem(v.fovV,5)
+					v.fovT = TweenService:Create(v.fovV,TweenInfo.new(5,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Value = 0})
+					v.fovT:Play()
+
+					grabbedSubject[arg] = v
+				end
+
+
+				if chokeLoopS and chokeLoopS.Parent and not chokeLoopS:GetAttribute("Done") then
+					TweenService:Create(chokeLoopS,TweenInfo.new(2,Enum.EasingStyle.Quint,Enum.EasingDirection.Out),{Pitch = 1;Volume =CHOKE_VOLUME / 1.5}):Play()
+				end
+				--if arg:FindFirstChild("HumanoidRootPart") then
+				--	local p = game.Players:GetPlayerFromCharacter(arg)
+				--	arg.HumanoidRootPart:SetNetworkOwner(p or nil)
+				--end
+				--grabbedSubject[arg] = nil
+
+				task.wait(10)
+
+				if arg and arg.Parent and grabbedSubject[arg] then
+					Release(grabbedSubject[arg])
+				end
+			end)
+			
+
+			local con2
+			con2 = arg.Humanoid.AncestryChanged:Connect(function(_,parent)
+				if not parent then
+					con2:Disconnect()
+					grabbedSubject[arg] = nil
+				end
+			end)
+
+			grabbedSubject[arg] = {char = arg;dmg = 0;choker = plr.Character;anim = anim;con = con;coughS = coughS;chokeLoopS = chokeLoopS;vf = vf;inst = inst;fovV = fovV;fovT = fovT;ancestryCon = con2}
+			
+			return arg
+		end
+	elseif mode == "ReleaseAll" then
+		print(arg)
+
+		for i,v in pairs(arg) do
+			local part = v[1]
+			local vel = v[2]
+			if grabbedSubject[part.Parent] and vel.Magnitude > 10 and part and part.Parent then
+				Ragdoll(part.Parent)
+				delay(0,function()
+					vel *= 5
+
+					if _G.SMains and _G.SMains.ForceT then
+						_G.SMains.ForceT(part.Parent:FindFirstChild("HumanoidRootPart"),vel,20,nil,nil,0.2)
+					else
+						for i = 1,2 do
+							part.Velocity = vel
+							RunService.Heartbeat:Wait()
+						end
+					end
+				end)
+			end
+		end
+
+		print(grabbedSubject)
+
+		for i,v in pairs(grabbedSubject) do
+			local _s,_e = pcall(function()
+				Release(v)
+			end)
+			if not _s then
+				warn(_e)
+			end
+		end
+
+		grabbedSubject = {}
+
+		return true
+	--elseif mode == "Release" then
+		--if not grabbedSubject[arg] then
+		--	return
+		--end
+
+		--local part = arg2[1]
+		--local vel = arg2[2]
+		--if grabbedSubject[part.Parent] and vel.Magnitude > 10 and part and part.Parent then
+		--	Ragdoll(part.Parent)
+		--	delay(0,function()
+		--		vel *= 5
+
+		--		if _G.SMains and _G.SMains.ForceT then
+		--			_G.SMains.ForceT(part.Parent:FindFirstChild("HumanoidRootPart"),vel,20,nil,nil,0.2)
+		--		else
+		--			for i = 1,2 do
+		--				part.Velocity = vel
+		--				game:GetService("RunService").Heartbeat:Wait()
+		--			end
+		--		end
+		--	end)
+		--end
+
+		--local _s,_e = pcall(function()
+		--	Release(grabbedSubject[arg])
+		--end)
+		--if not _s then
+		--	warn(_e)
+		--end
+
+		--grabbedSubject[arg] = nil
+
+		--return true
+	--elseif mode == "Damage" then
+	--	for i,v in pairs(arg) do
+	--		if grabbedSubject[v] then
+	--			if not arg3 and not grabbedSubject[v].damageChokeS then
+	--				local s = dir.damagechoke:Clone()
+	--				game.Debris:AddItem(s,5)
+	--				s.Pitch *= math.random(90,110) / 100
+	--				s.Parent = grabbedSubject[v].char.HumanoidRootPart
+	--				s:Play()
+	--				grabbedSubject[v].damageChokeS = s
+	--			end
+	--			Damage(v,arg2,arg3)
+	--		end
+	--	end
+
+	--	return true
+	elseif mode == "StartZap" then
+		for i,v in pairs(arg) do
+			if grabbedSubject[v] then
+				ZapSubject(v,plr.Character)
+			end
+		end
+
+		return true
+	elseif mode == "StopZap" then
+		for i,v in pairs(arg) do
+			if grabbedSubject[v] then
+				UnZapSubject(v)
+			end
+		end
+		return true
+
+	--elseif mode == "Snap" then
+		--for i,v in pairs(arg) do
+		--	if grabbedSubject[v] then
+		--		NeckSnap(v,plr)
+		--	end
+		--end
+	elseif mode == "CCZCOLR" then
+		IS_RED = not IS_RED
+	end
+end
+
+spawn(function()
+	while wait(1) do
+		for i,v in pairs(grabbedSubject) do
+			local _s,_e = pcall(function()
+				Damage(v.char,1)
+				local hitPlr = game.Players:GetPlayerFromCharacter(v.char)
+				if hitPlr then
+					local multi = 0.25
+
+					--if v.isZapping then
+					--	multi *= 4
+					--end
+
+					ReplicatedStorage.Events.PEP_H:FireClient(hitPlr,0.1,multi)
+				end
+			end)
+			if not _s then
+				warn(_e)
+			end
+		end
+	end
+end)
+
+RunService.Heartbeat:Connect(function()
+	for i,v in pairs(grabbedSubject) do
+		if v.zapBeam and v.zapBeam.Parent then
+			v.zapBeam.TextureSpeed = math.random(4, 15)
+			v.zapBeam.Width0 = math.random(3, 6)
+			v.zapBeam.Width1 = math.random(3, 6)
+
+			v.zapBeam.CurveSize0 = math.random(-4,4)
+		end
+	end
+end)
+
+local _g = Instance.new("ScreenGui")
+local _ls = mainDir.GrabLS:Clone()
+_ls.ToolValue.Value = tool
+_ls.Parent = _g
+_g.Parent = originalPlr.PlayerGui
+_ls.Enabled = true
