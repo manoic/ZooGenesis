@@ -1,0 +1,2877 @@
+local M = {}
+
+print("S1")
+
+local ServerStorage =		game:GetService("ServerStorage")
+local ReplicatedStorage =	game:GetService("ReplicatedStorage")
+local Players =				game:GetService("Players")
+local RunService = 			game:GetService("RunService")
+local MarketplaceService = 	game:GetService("MarketplaceService")
+
+local DEBUG = false;--RunService:IsStudio()
+
+local PlayerbaseData = Instance.new("Folder")
+PlayerbaseData.Name = "PlayerbaseData"
+PlayerbaseData.Parent = ServerStorage
+
+local PlayerbaseData2 = Instance.new("Folder")
+PlayerbaseData2.Name = "PlayerbaseData2"
+PlayerbaseData2.Parent = ReplicatedStorage
+
+local iS = ReplicatedStorage.Storage.ItemStats
+
+local Events = ReplicatedStorage.Events
+local Events2 = ReplicatedStorage.Events2
+local Events3 = ServerStorage.Events3
+
+local RANDOM = Random.new(math.floor(math.random() * 100000))
+
+
+local Modules = ReplicatedStorage.Modules
+
+--local rT
+local currentATM = {}
+local plrTable = {}
+local bTools = {}
+local toolSlots = {}
+local slotDBs = {}
+
+local itemModules = {}
+
+local ATM_Remote = Events.ATM
+local ClaimAllowanceEvent = Events.CLMZALOW
+local Shop_Remote = Events.SSHPRMTE1
+local Shop_Event2 = Events.SSHPRMTE2
+local MoneyEvent = Events3.nMonee
+local UpdateInvEvent = Events3.UpdateInv
+
+local gConfig = require(Modules.Config)
+local GetUnlockPrice = require(Modules.GetUnlockPrice)
+local GetRefillPrice = require(Modules.GetRefillPrice)
+local GetSellPrice = require(Modules.GetSellPrice)
+local GetShopBuyFee = require(Modules.GetShopBuyFee)
+local RemoveHelmetM = require(ServerStorage.Modules.Other.RemoveHelmet)
+local RemoveVestM = require(ServerStorage.Modules.Other.RemoveVest)
+local SkinsHandlerM = require(script.Parent.SkinsHandler)
+
+local Settings
+local handlingRestock = false
+	--= _G.GameSettings
+
+local ATM_Settings = {
+	Color0 =		Color3.fromRGB(152, 180, 175);
+	ColorPend =		Color3.fromRGB(166, 166, 133);
+	ColorComplete =	Color3.fromRGB(106, 172, 116);
+	ColorError =	Color3.fromRGB(172, 107, 107);
+}
+
+local CONFIGS = {}
+
+print("S2")
+
+local toolModules_RS = Instance.new("Folder")
+toolModules_RS.Name = "ToolModules"
+
+local _tm_g = Instance.new("Folder")
+_tm_g.Name = "Guns"
+_tm_g.Parent = toolModules_RS
+
+toolModules_RS.Parent = ReplicatedStorage.Modules
+--
+for _,v in pairs(ServerStorage.ToolModules:GetDescendants()) do
+	if v.ClassName == "ModuleScript" then
+		local n = false
+
+		if v:GetAttribute("DoClone") and v.Parent.Name == "Guns" then
+			v:SetAttribute("DoClone",nil)
+			v:Clone().Parent = toolModules_RS.Guns
+		elseif v:GetAttribute("AttachmentConfig") then
+			n = true
+		end
+
+		if n then
+			task.delay(0.2,function()
+				CONFIGS[v.Name] = require(v)
+			end)
+		else
+			CONFIGS[v.Name] = require(v)
+		end
+	end 
+end
+
+--for _,v in pairs(ServerStorage.ToolModules:GetDescendants()) do
+--	if v.ClassName == "ModuleScript" then
+--		CONFIGS[v.Name] = require(v)
+--	end 
+--end
+
+print("S3")
+
+local function DebugPrint(a1,a2,a3,a4,a5)
+	if not DEBUG then
+		return
+	end
+	
+	local t = {a1,a2,a3,a4,a5}
+	local s = ""
+	for i,v in pairs(t) do
+		if v ~= nil then
+			s = s .. tostring(v) .. " "
+		end
+	end
+	warn("ShopAtmHandler:",s)
+end
+
+local function Round(by,to_round)
+    local divided = to_round / by
+    local rounded = by * math.floor(divided + 0.5)
+    return rounded
+end
+
+local function isRealNumber(num)
+	return (typeof(num) == "number") and (num == num) and (math.abs(num) ~= math.huge)
+end
+
+--function Restock(fire)
+--	--		for _,v in pairs(iS:GetChildren()) do
+--	--			for _,x in pairs(v:GetChildren()) do
+--	--				if x:FindFirstChild("CurrentStock") then
+--	--					x.CurrentStock.Value = x.MaxStock.Value
+--	--				end
+--	--			end
+--	--		end
+--	for _,c in pairs(workspace.Map.Shopz:GetChildren()) do
+--		for _,x in pairs(c.CurrentStocks:GetChildren()) do
+--			if x.Real.Value:FindFirstChild("MinStock") then
+				
+--				local multi = (x:FindFirstChild("Multi") and x.Multi.Value) or 1
+
+--				local rndm = RANDOM:NextInteger(math.max(math.floor(x.Real.Value.MinStock.Value * multi),0),x.Real.Value.MaxStock.Value)
+--				x.Value = x.Value + rndm 
+--			else
+--				x.Value = x.MaxValue
+--			end
+
+--			--x.Value = x.Value * 1.5
+--		end
+--	end
+
+--	if fire then
+--		local tab = {
+--			Title = "Restock Notice";
+--			Text = "All dealers have been restocked.";
+--			Icon = "";
+--			Duration = 15;
+--		}
+--		Events.Notification:FireAllClients(tab,"BEEP")	
+--	end
+--end
+
+local function DoRemoveArmor(plr,found)
+	if itemModules[found] and itemModules[found].OnSell then
+		local c = nil
+
+		if found:FindFirstChild("ResupplyArmor") then
+			if found.ResupplyArmor.Type.Value == "Head" then
+				c = RemoveHelmetM
+			else
+				c = RemoveVestM
+			end
+		end
+
+		itemModules[found].OnSell(plr.Character,found.Name,c)
+
+		if found:FindFirstChild("ResupplyArmor") and found.ResupplyArmor:FindFirstChild("HeadToo") then
+			itemModules[found].OnSell(plr.Character,found.Name,RemoveHelmetM)
+		end
+	end
+end
+ServerStorage.Events3.DoRemoveArmor.Event:Connect(DoRemoveArmor)
+
+local RestockStore
+
+RestockStore = function(c,isGlobal)
+	local rvalues = isGlobal and Settings.Restock.IllegalStore or Settings.Restock[c.Type.Value] or Settings.Restock.HoboStore
+	if c:FindFirstChild("ManualRestockOnly") then
+		return false
+	end
+	if c:FindFirstChild("CurrentStocks") then
+		for _,x in pairs(c.CurrentStocks:GetChildren()) do
+			local noStockMulti = (x.Real.Value:FindFirstChild("NoStockMulti") and x.Real.Value.NoStockMulti.Value)
+			
+			if x.Real.Value:FindFirstChild("MinStock") then
+
+				local multi = (x:FindFirstChild("Multi") and x.Multi.Value) or 1
+				local real = x.Real.Value
+				
+				local mulNul = (ServerStorage.Values.StockMulti.Value > 1 and not noStockMulti and x.Real.Value.ForSale.Value and 1) or 0
+
+				local stockMulti = not noStockMulti and math.floor(ServerStorage.Values.StockMulti.Value + 0.5) or 1
+
+				local minStock = real.MinStock.Value
+
+				if x:FindFirstChild("MinStockAdd") then
+					--minStock += x.MinStockAdd.Value
+					minStock = real.MaxStock.Value
+				end
+
+				local rndm = math.max(RANDOM:NextInteger(math.floor(minStock * multi),real.MaxStock.Value * multi) * stockMulti,mulNul)
+				
+				--print(x,rndm)
+				--print(x:GetFullName(),rndm,multi,x:FindFirstChild("Multi"))
+
+				if real.ForSale.Value then
+					if not noStockMulti and ServerStorage.Values.InfStocks.Value then
+						x.MaxValue = 1000000
+						x.Value = 1000000
+					else
+						x.Value = ((not rvalues.Randomise and x.Value) or 0) + rndm
+					end
+				else
+					x.Value = 0
+				end
+			elseif x.Real.Value.ForSale.Value then
+				if not noStockMulti and ServerStorage.Values.InfStocks.Value then
+					x.MaxValue = 1000000
+					x.Value = 1000000
+				else
+					x.Value = x.MaxValue
+				end
+			else
+				x.Value = 0
+			end
+			--x.Value = x.Value * 1.5
+		end
+		
+		if ReplicatedStorage.Values.GlobalStocks.Value and ReplicatedStorage.Values.GlobalStocks.CustomRestockTime.Value >0 then
+			c.RestockTime.Value = ReplicatedStorage.Values.GlobalStocks.CustomRestockTime.Value
+		else
+			c.RestockTime.Value = math.random(rvalues.Min * 60,rvalues.Max * 60)
+		end
+		--print(c.RestockTime.Value)
+		warn("RESTOCKED")
+	end
+end
+
+function RestockHandler()	
+	--local start = 1606518000 -- 11/27/2020 11:00 PM UTC time (os.time() is in UTC time)
+	--local refreshCycle = 60 * Settings.RestockTime -- seconds
+	
+	----coroutine.resume(coroutine.create(function()
+	----	while true do
+	----		rT.Value = 60 * Settings.RestockTime
+	----		repeat wait(1)
+	----			rT.Value = rT.Value - 1
+	----		until rT.Value <= 0
+			
+	----		Restock(true)
+			
+	----		wait(1)
+	----	end
+	----end))
+
+	--local function updateCurRefresh()
+	--	local diff = (os.time() - start)
+	--	return math.floor(diff/refreshCycle)
+	--end
+
+	--local curRefresh = updateCurRefresh()
+	--local lastCheck = tick()
+	
+	--rT.Value = refreshCycle
+	
+	--RunService.Heartbeat:Connect(function()
+	--	if (tick() - lastCheck) > 1 then
+	--		lastCheck = tick()
+	--		local oldCurRefresh = curRefresh
+	--		curRefresh = updateCurRefresh()
+	--		if curRefresh ~= oldCurRefresh then
+	--			--print(curRefresh)
+	--			rT.Value = refreshCycle
+	--			Restock(true)
+	--		else
+	--			rT.Value = rT.Value - 1
+	--		end
+	--	end		
+	--end)
+	
+	if handlingRestock then return end
+	handlingRestock = true
+	
+	--local function timer()
+	--	while true do
+	--		wait(1)
+	
+	--	end
+	--end
+	
+	--spawn(timer)
+end
+
+function M.RestockAll()
+	if ReplicatedStorage.Values.GlobalStocks.Value then
+		RestockStore(ReplicatedStorage.Values.GlobalStocks,true)
+	else
+		for _,c in pairs(workspace.Map.Shopz:GetChildren()) do
+			RestockStore(c)
+		end
+	end
+end
+
+function ATM_Ting(plr,m,n,atmP)
+	if ServerStorage.Values.RemoveATMs.Value then return end
+	
+	local function FormatCheck()
+		if tonumber(n) and math.floor(tonumber(n)) == tonumber(n) then
+			return true
+		else
+			return false
+		end
+	end
+	
+	if currentATM[plr] then return end
+	
+	if ReplicatedStorage.Values.ShuttingDown.Value then return end
+	if _G.CheckIfCan and not _G.CheckIfCan(plr.Character,"Any",nil,nil,true) then return false,"YOU ARE TOO INJURED TO DO THIS RIGHT NOW" end
+	if not (atmP and atmP.Parent and atmP:IsA("BasePart") and atmP.Name == "MainPart" and atmP:IsDescendantOf(workspace.Map.ATMz)) then return end
+	local mag = (atmP.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+	if mag >= 10 then return end
+	
+	local atm = atmP.Parent
+	
+	if atm.Values.Busy.Value then return "XD" end
+	
+	m = tostring(m)
+	
+	local function Handle()
+		if m ~= "REDEEM" then
+			n = tonumber(n)
+			n = math.floor(n)
+		end
+			
+		local pd = PlayerbaseData[plr.Name]
+		local cv = pd.Cash
+		local bv = pd.Bank
+		
+		if m == "DP" and FormatCheck() then
+			if _G.InCombatCheck(plr,true) then return false,"UNAVAILABLE DURING COMBAT" end
+			
+			if n < Settings.MinWithdraw then
+				return false,"YOUR REQUEST MUST BE A MINIMUM OF " .. Settings.MinWithdraw .. ".",1
+			elseif cv.Value < n then
+				return false,"YOUR REQUEST EXCEEDS YOUR CASH BALANCE",1
+			else
+				currentATM[plr] = true
+				
+				local parts = atm.Parts
+				
+				parts.Screen.Transparency = 0.2
+				parts.Screen.Color = ATM_Settings.ColorPend
+				
+				if atmP:FindFirstChild("process") then
+					atmP.process:Play()
+				end
+				
+				wait(1.7)
+				
+				currentATM[plr] = nil
+				
+				local function Do()
+					if not (plr and plr.Parent) then return end
+					if not (plr.Character and plr.Character.Parent) then return end
+					if _G.CheckIfCan and not _G.CheckIfCan(plr.Character,"Any") then return false,"YOU ARE TOO INJURED TO DO THIS RIGHT NOW" end
+					if _G.RagdollCheck and _G.RagdollCheck(plr.Character) then return end
+					local mag = (atmP.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+					if cv.Value < n then return end
+					if mag >= 10 then return end
+
+					currentATM[plr] = nil
+					MoneyEvent:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",plr,"Cash", -n)
+					MoneyEvent:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",plr,"Bank", n)
+					return true
+				end
+				
+				local result = Do()
+				
+				if result then
+					if atmP:FindFirstChild("deposit") then
+						atmP.deposit:Play()
+					end
+					parts.Screen.Color = ATM_Settings.ColorComplete
+				else
+					if atmP:FindFirstChild("error") then
+						atmP.error:Play()
+					end					
+					parts.Screen.Color = ATM_Settings.ColorError
+				end
+				
+				delay(2.1,function()
+					if not atm.Values.Busy.Value then
+						parts.Screen.Transparency = 0.3
+						parts.Screen.Color = ATM_Settings.Color0
+					end
+				end)
+				
+				if result then
+					return true,"YOUR REQUEST WAS COMPLETED",2.2
+				end				
+			end
+		elseif m == "WI" and FormatCheck() then
+			if not _G.CheckIfCan(plr.Character) then
+				return false,"YOU ARE TOO INJURED TO DO THIS RIGHT NOW"
+			end
+			
+			if bv.Value < n then
+				return false,"YOUR REQUEST EXCEEDS YOUR BANK BALANCE",2
+			elseif n > Settings.MaxWithdraw or cv.Value >= Settings.MaxWithdraw or cv.Value + n > Settings.MaxWithdraw then
+				return false,"YOUR REQUEST EXCEEDS THE MAX WITHDRAWAL (" .. Settings.MaxWithdraw ..")",1
+			elseif n < Settings.MinDeposit then
+				return false,"YOUR REQUEST MUST BE A MINIMUM OF " .. Settings.MinDeposit .. ".",1
+			else
+				currentATM[plr] = true
+				if atmP:FindFirstChild("process") then
+					atmP.process:Play()
+				end
+				
+				local parts = atm.Parts
+				
+				parts.Screen.Transparency = 0.2
+				parts.Screen.Color = ATM_Settings.ColorPend	
+				
+				wait(1.7)
+				
+				currentATM[plr] = nil
+				
+				local function Do()
+					if not (plr and plr.Parent) then return end
+					if not (plr.Character and plr.Character.Parent) then return end
+					if _G.CheckIfCan and not _G.CheckIfCan(plr.Character) then return false,"YOU ARE TOO INJURED TO DO THIS RIGHT NOW" end
+					if _G.RagdollCheck and _G.RagdollCheck(plr.Character) then return end
+					local mag = (atmP.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+					if bv.Value < n then return end
+					if mag >= 10 then return end
+
+					currentATM[plr] = nil
+					MoneyEvent:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",plr,"Cash",n)
+					MoneyEvent:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",plr,"Bank",-n)
+					return true
+				end
+				
+				local result = Do()
+				
+				if result then
+					if atmP:FindFirstChild("withdraw") then
+						atmP.withdraw:Play()
+					end					
+					parts.Screen.Color = ATM_Settings.ColorComplete
+				else
+					if atmP:FindFirstChild("error") then
+						atmP.error:Play()
+					end					
+					parts.Screen.Color = ATM_Settings.ColorError
+				end
+				
+				delay(2.1,function()
+					if not atm.Values.Busy.Value then
+						parts.Screen.Transparency = 0.3
+						parts.Screen.Color = ATM_Settings.Color0
+					end
+				end)				
+				
+				return true,"YOUR REQUEST WAS COMPLETED",2.2
+			end		
+		elseif m == "REDEEM" and n ~= nil then
+			currentATM[plr] = true
+			
+			wait(0.5)
+			
+			local success,ret = Events3.REDMCODE:Invoke("9438JI0REOSDKFDGAKO7U890DSFWSDJ09WESFU",plr,tostring(n))
+			
+			ret = ret or "ERROR OCCURED"
+			
+			delay(0.9,function()
+				currentATM[plr] = nil
+			end)
+			
+			return success,ret,1
+		else
+			return nil
+		end
+	end
+	
+	local cT = tick()
+	local c = false
+	
+	local parts
+	if m ~= "REDEEM" then
+		parts = atm.Parts
+		atm.Values.User.Value = plr
+		atm.Values.Busy.Value = true
+	end
+	
+	local a,b,to = Handle()
+	
+	if m ~= "REDEEM" then
+		atm.Values.User.Value = nil
+
+		if not a then
+			if tick() - cT <= 1 then
+				c = true
+			end
+			parts.Screen.Transparency = 0.2
+			parts.Screen.Color = ATM_Settings.ColorError	
+		end
+
+		delay(tick() - cT > 1 and 2 or 0.3,function()
+			atm.Values.Busy.Value = false
+			parts.Screen.Transparency = 0.3
+			parts.Screen.Color = ATM_Settings.Color0
+		end)
+	end
+
+	return a,b,c,to
+end
+
+function IncreaseSpend(code,plr,amt)
+	if code ~= "NJKXCVBI" then
+		return
+	end
+	
+	if not plrTable[plr] then return end	
+	
+	local spends = plrTable[plr].LifeSpends
+	
+	if not spends then spends = 0 end
+	spends = spends + amt
+	
+	plrTable[plr].LifeSpends = spends
+	
+	Shop_Event2:FireClient(plr,spends)
+end
+
+function GetShopData(player)
+	local l = {}
+	if not player or not player:IsA("Player") or not bTools[player] then warn("No table for player tools! " .. tostring(player)) return {} end
+	
+	local spends = plrTable[player] and plrTable[player].LifeSpends
+	
+	local vF = _G.GVF and _G.GVF(player.Name)
+	
+	local function doDataT(tool,isdeV)
+		local data = {}
+		if not isdeV and tool:FindFirstChild("DataHandlerM") then
+			local gotData = require(tool.DataHandlerM).GetData(player)
+			if gotData then
+				if typeof(gotData) == "table" then
+					gotData.Tick = os.time()
+				end
+				
+				data = gotData			
+			end
+		end
+		if tool:GetAttribute("ScrapFound") == true then
+			data.ScrapFound = true
+		end
+
+		if tool:GetAttribute("CrateFound") == true then
+			data.CrateFound = true
+		end
+		
+		if tool:GetAttribute("NoSellPrice") == true then
+			data.NoSellPrice = true
+		end
+		
+		if tool:GetAttribute("CantDrop") == true then
+			data.CantDrop = true
+		end
+		if tool:GetAttribute("MysteryBoxFound") == true then
+			data.MysteryBoxFound = true
+		end
+		return data
+	end
+	
+	for tool,name in pairs(bTools[player]) do
+		if
+			(tool.Parent or tool:GetAttribute("__ISARMOR")) and
+			not tool:GetAttribute("NoSave") 
+			
+		then
+			local data = doDataT(tool,false)
+			table.insert(l,{name;data})
+		end
+		--elseif vF and tool and vF:FindFirstChild("DataExtras") and vF.DataExtras:FindFirstChild(tool.Name)  then
+		--	tool = vF.DataExtras:FindFirstChild(tool.Name)
+			
+		--	if not tool or tool:GetAttribute("NoSave") then
+		--		--
+		--	else
+		--		local data = doDataT(tool,true)
+		--		table.insert(l,{name;data})
+		--	end			
+		--end
+	end
+	
+	--print("1:SPENDS",spends)
+	return l,spends
+end
+
+function SetTools(code,player,tools)
+	if code ~= "OKJGHD89UW4T23" then
+		return
+	end
+	
+	if not bTools[player] then return end
+	
+	
+	local l = {}
+	for i,t in pairs(tools) do
+		l[t] = t.Name
+	end
+	
+	bTools[player] = l
+	
+	UpdateInv(player)
+end
+
+function AddTool(player,tool)
+	if not bTools[player] then return end
+	bTools[player][tool] = tool.Name
+	
+	UpdateInv(player)
+end
+
+function RemoveTool(player,tool)
+	if not bTools[player] then return end
+	bTools[player][tool] = nil
+	
+	UpdateInv(player)
+end
+
+function UpdateInv(plr)
+	if slotDBs[plr] then return end
+	slotDBs[plr] = true
+	
+	local vF = _G.GVF(plr.Name)
+
+	if plr.Character and vF and plrTable[plr] then
+		
+		local n = 0
+		
+		local function checkDir(d)
+			for _,v in pairs(d:GetChildren()) do
+				if (v:IsA("Folder") or v:IsA("Model") or v:IsA("Tool")) and toolSlots[v.Name] then
+					n = n + toolSlots[v.Name]
+				end
+			end			
+		end
+		
+		checkDir(plr:WaitForChild("Backpack"))
+		checkDir(plr.Character)
+
+		vF.InventorySlots.Value = n
+	end
+	--RunService.Heartbeat:Wait()
+	slotDBs[plr] = nil
+end
+
+function Shop(plr,sType,iType,chosen,shop,custom,client_canBankBuy,buyZone)
+	local _s,_e1,_e2,_e3,_e4 = pcall(function()
+
+		DebugPrint("SHOP:",plr,sType,iType,chosen,shop,custom,client_canBankBuy,buyZone)
+		--print(111)
+
+		if ReplicatedStorage.Values.ShuttingDown.Value then return end
+		DebugPrint("SHOP:",plr,0.05)
+		if _G.CheckIfCan and not _G.CheckIfCan(plr.Character,"Any",nil,nil,true) then return end
+		DebugPrint("SHOP:",plr,0.1)
+		--if _G.InCombatCheck(plr,true) then return false,"Unavailable during combat" end
+		if not sType or not iType or not chosen then return end
+		
+		--print(222)
+		DebugPrint("SHOP:",plr,0.2)
+		if ReplicatedStorage.Values.GlobalStocks.Value and buyZone ~= nil then
+			------print("SHOP",0.21)
+			
+			if not ReplicatedStorage.Values.BuyZonesEnabled.Value then
+				return
+			end
+			
+			DebugPrint("SHOP:",0.22)
+			
+			if typeof(buyZone) ~= "Instance" or not buyZone:IsA("BasePart") or not buyZone.Parent or buyZone.Name ~= "MainPart" or not buyZone:IsDescendantOf(workspace.Filter.BuyZones) then
+				return
+			end
+			
+			DebugPrint("SHOP",0.23)
+			
+			if not buyZone.Parent.Enabled.Value then
+				return
+			end
+			
+			DebugPrint("SHOP",0.24)
+			
+			local mag = (buyZone.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+			if mag >= buyZone.Size.Magnitude * 1.3 then return end
+			----print("SHOP",0.25)
+		else
+			if not shop or typeof(shop) ~= "Instance" or not shop:IsA("BasePart") or not shop.Parent or shop.Name ~= "MainPart" or not shop:IsDescendantOf(workspace.Map.Shopz) then return end
+			DebugPrint("SHOP:",plr,0.3)
+			if shop.Parent.Type.Value ~= sType then return end
+			DebugPrint("SHOP:",plr,0.4)
+			local mag = (shop.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+			if mag >= 10 then return end
+			DebugPrint("SHOP:",plr,0.5)
+		end
+		
+		DebugPrint("SHOP",0.24)
+		
+		--print(333)
+		
+		if not iS:FindFirstChild(iType) then return end
+		DebugPrint("SHOP:",plr,0.6)
+		if not ServerStorage.Tools:FindFirstChild(chosen) then return end
+		DebugPrint("SHOP:",plr,0.7)
+		
+		--print(444)
+
+		if _G.RAC_CHECK and not _G.RAC_CHECK("89RWE89SDFJWEP[O2398",plr) then return end
+
+		DebugPrint("SHOP:",plr,1)
+		--print(555)
+
+		local cPlrData = plrTable[plr]
+		if not cPlrData then return end
+
+		local vF = _G.GVF(plr.Name)
+
+		local spends = cPlrData.LifeSpends
+
+		local char = plr.Character
+
+		local pd = PlayerbaseData[plr.Name]
+		local cv = pd.Cash
+		local bv = pd.Bank
+
+		DebugPrint("SHOP:",plr,2)
+
+		local found = iS[iType]:FindFirstChild(chosen)
+		
+		if not found then return end
+		
+		local isGamepass = found:FindFirstChild("IsGamepass") and found.IsGamepass.Value
+		
+		local isDevProduct = found:FindFirstChild("IsDevProduct") and found.IsDevProduct.Value
+		
+		if isDevProduct then
+			return
+		end
+		
+		local isUpgrade = found:FindFirstChild("IsUpgrade") and found.IsUpgrade.Value
+		
+		--print(666)
+		
+		--if (isGamepass and not pd.Gamepasses:FindFirstChild(found.Name)) or (sType == "LegalStore" and not pd.Gamepasses:FindFirstChild("Weaponry")) then
+		--	Events3.UpdateGamepasses:Invoke(plr)
+		--end
+		
+		local isArmoryPassWep = (found:FindFirstChild("APassOnly") and found.APassOnly.Value)
+		local hasArmoryPass = true
+		--if custom ~= "Sell" and custom ~= "ResupplyAmmo" and isArmoryPassWep and not hasArmoryPass then return end
+		
+		DebugPrint("SHOP:",plr,2.2)
+		
+		--print(777)
+
+		local sStation = found.SellStations:FindFirstChild(sType)
+		local rfStation = (found:FindFirstChild("RefillStations") and found.RefillStations:FindFirstChild(sType))
+		
+		local isAmmoResupply = custom and string.find(custom,"ResupplyAmmo")
+		
+		if not buyZone then
+			local rfStation2 = rfStation or sStation
+
+			if not sStation and not rfStation2 and custom ~= "Sell" and custom ~= "Upgrade" then
+				return
+			end
+			if not rfStation2 and isAmmoResupply then
+				return
+			end
+		end
+
+		--if (not sStation and custom ~= "Sell" and not buyZone) and not (rfStation and custom == "ResupplyAmmo") then return end
+
+		DebugPrint("SHOP:",plr,2.5)
+
+		if isGamepass and not true then return end
+		
+		--print(888)
+		
+		local iLevel = found.Level.Value
+		local iPrice = found.Price.Value
+
+		local isRenting = false
+		DebugPrint("SHOP:",plr,3)
+
+		if sStation and sStation:FindFirstChild("OverrideLevel") then
+			iLevel = sStation.OverrideLevel.Value
+		end
+		if sStation and sStation:FindFirstChild("PriceMulti") then
+			iPrice = math.floor(iPrice * sStation.PriceMulti.Value)
+		end
+		if isArmoryPassWep and hasArmoryPass then
+			iLevel = 0
+		end
+
+		local function UnlockCheck()
+			if pd.Unlocked:FindFirstChild(found.Name) 
+				or (found:FindFirstChild("CanLevelUnlock") and found.CanLevelUnlock.Value and pd.Level.Value >= iLevel)
+				or (sType == "LegalStore" and pd.Level.Value >= iLevel)
+				or (found.ForSale.Value and pd.Level.Value >= iLevel and not (found:FindFirstChild("CanLevelUnlock") and found.CanLevelUnlock.Value)) and not found.CanUnlock.Value
+			then
+				return true
+			end
+		end
+
+		if found.CanRent.Value and not UnlockCheck() then
+			if pd.Level.Value < Settings.MinRentingLevel  and custom ~= "Unlock" and custom ~= "Sell" and custom ~= "Upgrade" and not isAmmoResupply then
+				return false,"RENTING UNLOCKED AT LEVEL " .. tostring(Settings.MinRentingLevel)
+			end
+
+			isRenting = true
+
+			iPrice = math.floor((iPrice * found.CanRent.RentMulti.Value) + 0.5)
+		end
+
+		local hum = char.Humanoid
+		hum:UnequipTools()
+
+		--UpdateInv(plr)
+
+		local got = 0
+		local gottt = nil
+		local got2
+
+		local function gottChec(dir)
+			if gottt then return end
+			for _,v in pairs(dir:GetChildren()) do
+				if (v:IsA("Tool") or v:IsA("Folder")) and v.Name == found.Name then
+					got2 = v
+					got = got + 1
+
+					if not gottt then
+						gottt = v
+						break
+					end
+				end
+			end		
+		end
+
+		gottChec(plr.Backpack)
+		gottChec(plr.Character)
+		
+		local buyCheck = true
+		if found:FindFirstChild("BuyCheck") then
+			buyCheck = require(found.BuyCheck)(plr)
+		end
+		local stockV
+		
+		if ReplicatedStorage.Values.GlobalStocks.Value then
+			stockV = ReplicatedStorage.Values.GlobalStocks.CurrentStocks:FindFirstChild(found.Name)
+		elseif not buyZone then
+			stockV = shop.Parent.CurrentStocks:FindFirstChild(found.Name)
+		end
+		
+		DebugPrint("SHOP:",2.6)
+		
+		if custom ~= "Sell" and not isAmmoResupply and custom ~= "Upgrade" and not (isUpgrade and custom == "Unlock") and not stockV then
+			return
+		end
+		
+		DebugPrint("SHOP:",2.7)
+		
+		local function IsResupplyAble(found,got2,resupplyType)
+			if 	(found:FindFirstChild("ResupplyGun") 
+				and found.ResupplyGun.Value 
+				and got2:FindFirstChild("Config")
+				and got2:FindFirstChild("Values") 
+				and got2.Values:FindFirstChild("StoredAmmo")) then
+				
+				if resupplyType == "ResupplyAmmo2" and not got2.Values:FindFirstChild("StoredAmmo2") then
+					return
+				end
+
+				return "g"
+			elseif 	(found:FindFirstChild("ResupplyArmor")
+				and found.ResupplyArmor.Value 
+				--and modules.gConfig:GetConfig(c2) 
+				and vF) then
+				return "a"
+			end
+		end
+		
+			--if custom == "Unlock" then
+		--	print(custom == "Unlock", not UnlockCheck(), found.CanUnlock.Value, not isGamepass, found.ForSale.Value)
+		--end
+
+		if isAmmoResupply
+			--and (isGamepass or UnlockCheck()) 
+		then
+			if _G.CheckIfCan and not _G.CheckIfCan(plr.Character,nil,nil,nil,true) then return false,"YOU ARE TOO INJURED TO DO THIS RIGHT NOW" end
+			if got == 1 and got2 and IsResupplyAble(found,got2,custom) then
+				local typ = IsResupplyAble(found,got2,custom)
+				
+
+				local config
+				if typ == "g" then
+					config = CONFIGS[got2.Name]
+					if not config then return end
+				end
+				
+				local daValue = typ == "g" and found.ResupplyGun or found.ResupplyArmor
+				local lrtName = "LastResupplyTime"
+				
+				local chosenAmmoValue,chosenStoredAmmoValue
+				local _c2 = config
+				
+				if custom == "ResupplyAmmo2" then
+					lrtName ..= "2"
+					
+					daValue = found:FindFirstChild("ResupplyGun2")
+					
+					chosenAmmoValue = got2.Values:FindFirstChild("SERVER_Ammo2")
+					chosenStoredAmmoValue = got2.Values:FindFirstChild("SERVER_StoredAmmo2")
+					
+					_c2 = config.Customs["UnderbarrelLauncher"]
+				elseif typ == "g" then
+					chosenAmmoValue = got2.Values:FindFirstChild("SERVER_Ammo")
+					chosenStoredAmmoValue = got2.Values:FindFirstChild("SERVER_StoredAmmo")
+				end
+				
+				local lastResupplyTime = got2:GetAttribute(lrtName)
+				local resupplyCooldown = Settings.MinResupplyCooldown or 0
+				local customResupplyCooldown = daValue:FindFirstChild("CustomResupplyCooldown") and daValue.CustomResupplyCooldown.Value
+				if customResupplyCooldown then
+					resupplyCooldown = customResupplyCooldown
+				end
+				if lastResupplyTime and time() - lastResupplyTime < resupplyCooldown then
+					return false,"COOLDOWN [" .. tostring(math.round(math.max(resupplyCooldown - (time() - lastResupplyTime),1))) .. "s]"
+				end
+				
+				local sAV = (typ == "g" and (chosenAmmoValue.Value + chosenStoredAmmoValue.Value)) or vF.ArmorHP[daValue.Type.Value].Value
+				local aV = (typ == "g" and (_c2.MagSize + _c2.StoredAmmo)) or vF.ArmorHP[daValue.Type.Value].MaxValue
+				
+				if sAV <= 0 or sAV < math.max(0,aV * 0.99) then
+					
+					local refillPrice = GetRefillPrice(plr,daValue.Price.Value,sAV/aV,rfStation)
+					
+					local buyType = 1 -- 1 = cash, 2 = bank
+					
+					local fee = GetShopBuyFee(plr,found,typ == "g" and "rf" or "rp")
+					
+					if client_canBankBuy and ReplicatedStorage.Values.ShopFromBank.Value and fee then
+						if refillPrice > cv.Value then 
+							if refillPrice + fee > bv.Value then
+								return false,"NOT ENOUGH BANK"
+							else
+								refillPrice += fee
+								buyType = 2
+							end
+							--return false,"NOT ENOUGH CASH"
+						end
+					else
+						if refillPrice > cv.Value then 
+							return false,"NOT ENOUGH CASH"
+						end
+					end
+					
+					--if refillPrice > cv.Value then 
+					--	return false,"NOT ENOUGH CASH" 
+					--else
+					IncreaseSpend("NJKXCVBI",plr,refillPrice)
+					
+					got2:SetAttribute(lrtName,math.floor(time()))
+						
+						if typ == "g" then
+						chosenStoredAmmoValue.Value = _c2.StoredAmmo
+						chosenAmmoValue.Value = _c2.MagSize
+							got2.Values.SyncEvent:Fire()
+							
+							if itemModules[found] and itemModules[found].OnRefill then
+								itemModules[found].OnRefill(plr,found.Name,got2)
+							end
+						else
+							vF.ArmorHP[daValue.Type.Value].Value = vF.ArmorHP[daValue.Type.Value].MaxValue
+						
+							if daValue:FindFirstChild("HeadToo") and daValue.HeadToo.Value then
+								vF.ArmorHP["Head"].Value = vF.ArmorHP["Head"].MaxValue
+							end
+							
+							local bruhV = daValue.Type.Value == "Body" and vF.Armor_BodyOBJ or vF.Armor_HeadOBJ
+							
+							--vF.ArmorHP.Head.Value = vF.ArmorHP.Head.MaxValue
+							--vF.ArmorHP.Body.Value = vF.ArmorHP.Body.MaxValue
+
+							if bruhV.Value and bruhV.Value.Parent and bruhV.Value:FindFirstChild("BrokenM") then
+								local armor = bruhV.Value
+								require(armor.BrokenM)(plr.Character,"Repaired")
+							end
+						end
+					
+						local buyType2 = buyType == 1 and "Cash" or "Bank"
+					
+						MoneyEvent:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",plr,buyType2, -refillPrice)
+						--hum:EquipTool(got2)
+						return true,"PURCHASE COMPLETE"
+					--end
+				else
+					return false,(typ == "g" and "YOU HAVE SUFFICIENT STORED AMMO") or "YOUR ARMOR IS SUFFICIENTLY REPAIRED"
+				end
+			else
+				return
+			end
+		elseif custom == "Sell" 
+			--and (isGamepass or UnlockCheck()) t
+		then
+			DebugPrint("SHOP:",plr,5)
+			
+			DebugPrint("SHOP:",plr,6)
+			
+			if found:FindFirstChild("Sellable") and found.Sellable.Value and gottt then
+				if gottt:FindFirstChild("CantDrop") and gottt.CantDrop.Value then
+					return false,"THIS ITEM IS IN USE"
+				--elseif not gottt:FindFirstChild("CanSell") then
+					--	return false,"THIS ITEM WAS NOT BOUGHT AT A STORE"
+				elseif gottt:GetAttribute("CantSell") then
+					return false,"ITEM CANNOT BE SOLD"
+				else
+					DebugPrint("SHOP:",plr,7)
+
+					if gottt and gottt:FindFirstChild("CantDrop") and gottt.CantDrop.Value then
+						return
+					end
+					
+					if gottt:GetAttribute("NZPO") then
+						return
+					end
+
+					if found.Sellable:FindFirstChild("CostsToSell") and found.Sellable.CostsToSell.Value and found.Sellable.Price.Value > cv.Value then return false,"NOT ENOUGH CASH" end
+
+					local sellCheck = true
+					if found:FindFirstChild("SellCheck") then
+						sellCheck = require(found.SellCheck)(plr,found.Name)
+					end
+
+					if sellCheck then
+						local sellPrice = GetSellPrice(plr,gottt,found)
+						
+						if not isRealNumber(sellPrice) then
+							sellPrice = 0
+						end
+						
+						if _G.InCombatCheck(plr,true) and sellPrice > 0 then return false,"UNAVAILABLE DURING COMBAT" end
+						
+						if found:FindFirstChild("ResupplyArmor") then
+							local function getF(nam)
+								for i2,v2 in pairs(ReplicatedStorage.Storage.ItemStats:GetDescendants()) do
+									if v2.Name == nam and v2:FindFirstChild("SlotUsage") then
+										return v2.SlotUsage.Value
+									end
+								end
+							end
+							
+							local s = 0
+							for i,v in pairs(plr.Backpack:GetChildren()) do
+								if v:IsA("Tool") then
+									local n = getF(v.Name)
+									if n then
+										s += n
+									end
+								end
+							end
+							
+							if s > (vF.InventorySlots.MaxValue - found.SlotUsage.Value) then
+								return false,"INVENTORY TOO FULL TO SELL"
+							end
+						end
+						
+						MoneyEvent:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",plr,"Cash", sellPrice)
+						
+						if isUpgrade and found.IsUpgrade:FindFirstChild("OriginName") then
+							if ReplicatedStorage.Values.GlobalStocks.Value then
+								stockV = ReplicatedStorage.Values.GlobalStocks.CurrentStocks:FindFirstChild(found.IsUpgrade.OriginName.Value)
+							elseif not buyZone then
+								stockV = shop.Parent.CurrentStocks:FindFirstChild(found.IsUpgrade.OriginName.Value)
+							end
+						end
+
+						if stockV and stockV.Parent and (found.ForSale.Value or isUpgrade) then	
+							stockV.Value = stockV.Value + 1
+						end	
+
+						bTools[plr][gottt] = nil
+
+						vF.InventorySlots.Value = vF.InventorySlots.Value - found.SlotUsage.Value
+
+						gottt:Destroy()
+
+						DoRemoveArmor(plr,found)
+
+						--UpdateInv(plr)
+
+						return true,"ITEM SOLD"
+					end
+				end
+			else
+				return false,"THIS ITEM CANT BE SOLD"
+			end
+		elseif custom == "Unlock" and not UnlockCheck() and found.CanUnlock.Value and not isGamepass and found.ForSale.Value and not ReplicatedStorage.Values.DisableBank.Value then
+			local priceCheck = GetUnlockPrice(plr,pd.Level.Value,iLevel,found.CanUnlock)
+			if priceCheck > bv.Value then
+				return false, "NOT ENOUGH IN THE BANK"
+			else	
+				--print("UNLOCKED!")
+
+				Events3.UnlockTool:Invoke(plr,found,priceCheck)
+
+				if itemModules[found] and itemModules[found].OnUnlock then
+					itemModules[found].OnUnlock(plr,found.Name)
+				end
+
+				MoneyEvent:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",plr,"Bank",-priceCheck)
+				
+				local _s,_e = pcall(function()
+					if priceCheck >= 900000 and ReplicatedStorage.Values.DataSaving.Value and not ReplicatedStorage.Values.IsVipServer.Value then
+						local l_success = Events3.OLGR:Invoke("ZKLFXG890ZDFGJKN43SU8IOG","ExploitLog",plr.Name,"HIGH UNLOCK","High Unlock Complete","Buddy unlocked " .. tostring(found) .. " for: " .. tostring(priceCheck),"ShopUnlockLog")
+					end
+				end)
+				if not _s then
+					warn("lol L erad thing error:",_e)
+				end
+				
+				return true,"ITEM UNLOCKED!"
+			end
+		elseif custom == "Upgrade" then
+			DebugPrint("SHOP:",3.0)
+			
+			if not gottt then
+				return
+			end
+			
+			if _G.CheckIfCan and not _G.CheckIfCan(plr.Character,nil,nil,nil,true) then return false,"YOU ARE TOO INJURED TO DO THIS RIGHT NOW" end
+			
+			DebugPrint("SHOP:",3.1)
+			
+			local upgradeInstance = found:FindFirstChild("CanUpgrade")
+			local canUpgrade = upgradeInstance and upgradeInstance.Value
+			
+			local foundUpgrade = nil
+			if canUpgrade and found.Parent:FindFirstChild(upgradeInstance.UpgradedName.Value) then
+				foundUpgrade = found.Parent[upgradeInstance.UpgradedName.Value]
+			else
+				canUpgrade = false
+			end
+			
+			DebugPrint("SHOP:",3.2)
+			
+			if not canUpgrade then
+				return
+			end
+			
+			DebugPrint("SHOP:",3.3)
+			
+			if not foundUpgrade.ForSale.Value then return end
+			
+			local upgradeStation = (foundUpgrade:FindFirstChild("UpgradeStations") and foundUpgrade.UpgradeStations:FindFirstChild(sType)) 
+			
+			if not upgradeStation then
+				return false,"CANNOT UPGRADE HERE"
+			end
+			
+			DebugPrint("SHOP:",3.4)
+			
+			local iLevelUPGRADE = foundUpgrade.Level.Value
+			local iPriceUPGRADE = foundUpgrade.Price.Value
+			
+			local sStation2 = foundUpgrade.SellStations:FindFirstChild(sType)
+
+			if sStation2 and sStation2:FindFirstChild("OverrideLevel") then
+				iLevelUPGRADE = sStation2.OverrideLevel.Value
+			end
+			if sStation2 and sStation2:FindFirstChild("PriceMulti") then
+				iPriceUPGRADE = math.floor(iPriceUPGRADE * sStation2.PriceMulti.Value)
+			end
+				
+			local function UnlockCheckUpgrade()
+				if pd.Unlocked:FindFirstChild(foundUpgrade.Name) 
+					or (foundUpgrade:FindFirstChild("CanLevelUnlock") and foundUpgrade.CanLevelUnlock.Value and pd.Level.Value >= iLevelUPGRADE)
+					or (sType == "LegalStore" and pd.Level.Value >= iLevelUPGRADE)
+					or (foundUpgrade.ForSale.Value and pd.Level.Value >= iLevelUPGRADE and not (foundUpgrade:FindFirstChild("CanLevelUnlock") and foundUpgrade.CanLevelUnlock.Value)) and not foundUpgrade.CanUnlock.Value
+				then
+					return true
+				end
+			end
+			
+			if not UnlockCheckUpgrade() then
+				return
+			end
+
+			DebugPrint("SHOP:",3.5)
+			
+			local buyType = 1 -- 1 = cash, 2 = bank
+			local fee = GetShopBuyFee(plr,foundUpgrade,"m")
+			if client_canBankBuy and ReplicatedStorage.Values.ShopFromBank.Value and fee then
+
+				if foundUpgrade:FindFirstChild("CustomBankBuyFee") then
+					fee = foundUpgrade.CustomBankBuyFee.Value
+				end
+
+				if iPriceUPGRADE > cv.Value then 
+					if iPriceUPGRADE + fee > bv.Value then
+						return false,"NOT ENOUGH BANK"
+					else
+						iPriceUPGRADE += fee
+						buyType = 2
+					end
+					--return false,"NOT ENOUGH CASH"
+				end
+			else
+				if iPriceUPGRADE > cv.Value then 
+					return false,"NOT ENOUGH CASH"
+				end
+			end
+			
+			DebugPrint("SHOP:",3.6)
+			
+			local upgradeGotCount = 0
+			
+			local function gottChec2(dir)
+				if gottt then return end
+				for _,v in pairs(dir:GetChildren()) do
+					if (v:IsA("Tool") or v:IsA("Folder")) and v.Name == foundUpgrade.Name then
+						upgradeGotCount += 1
+
+						--if not gottt then
+						--	gottt = v
+						--	break
+						--end
+					end
+				end		
+			end
+			gottChec2(plr.Backpack)
+			gottChec2(plr.Character)
+			
+			if upgradeGotCount >= foundUpgrade.MaxBuy.Value then
+				if foundUpgrade.MaxBuy.Value == 1 then
+					return false,"YOU ALREADY OWN THIS ITEM" 
+				else
+					return false,"YOU CANNOT BUY MORE OF THIS ITEM" 
+				end
+			end
+			
+			DebugPrint("SHOP:",3.7)
+			
+			if vF.InventorySlots.Value + math.max(foundUpgrade.SlotUsage.Value -  found.SlotUsage.Value) > vF.InventorySlots.MaxValue then return end
+			
+			DebugPrint("SHOP:",3.8)
+			
+			IncreaseSpend("NJKXCVBI",plr,iPrice)
+
+			local buyType2 = buyType == 1 and "Cash" or "Bank"
+
+			ServerStorage.Events3.nMonee:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",plr,buyType2, -iPriceUPGRADE)
+			--found.CurrentStock.Value = found.CurrentStock.Value - 1
+			
+			bTools[plr][gottt] = nil
+
+			--vF.InventorySlots.Value = vF.InventorySlots.Value - found.SlotUsage.Value
+
+			gottt:Destroy()
+			
+			local c = nil
+			if found:FindFirstChild("ResupplyArmor") then
+				if found.ResupplyArmor.Type.Value == "Head" then
+					c = RemoveHelmetM
+				else
+					c = RemoveVestM
+				end
+			end
+			if itemModules[found] and itemModules[found].OnSell then
+				itemModules[found].OnSell(plr.Character,found.Name,c)
+			end
+			
+			local tool = ServerStorage.Tools[foundUpgrade.Name]:Clone()
+
+			tool:SetAttribute("StoreBought",true)
+
+			if found:FindFirstChild("CantDrop") and found.CantDrop.Value then
+				tool:SetAttribute("CantDrop",true)
+			else
+				if ServerStorage.Values.Shop_DisableGunDropping.Value and iS.Guns:FindFirstChild(chosen) then
+					tool:SetAttribute("CantDrop",true)
+				elseif ServerStorage.Values.Shop_DisableMeleeDropping.Value and iS.Melees:FindFirstChild(chosen) then
+					tool:SetAttribute("CantDrop",true)
+				end
+			end
+			
+			if iType == "Guns" then
+				local appliedSkin, id = Events3.GetEquippedItemSkin:Invoke(plr,chosen)
+				
+				if tool:GetAttribute("AppliedSkin") then
+					appliedSkin = tool:GetAttribute("AppliedSkin")
+				end
+				
+				if appliedSkin then
+					SkinsHandlerM.ApplyFullSkin(tool,appliedSkin,plr, id)
+				end
+			end
+			
+			--tool:SetAttribute("IsUpgrade",found.Name)
+
+			tool.Parent = plr.Backpack
+
+			--vF.InventorySlots.Value = vF.InventorySlots.Value + found.SlotUsage.Value
+
+			--hum:EquipTool(tool)
+
+			bTools[plr][tool] = tool.Name
+			plrTable[plr] = cPlrData
+			
+			DebugPrint("SHOP:",3.9)
+			
+			return true,"UPGRADE COMPLETE!"
+		elseif not custom and got >= found.MaxBuy.Value or not buyCheck then
+			if found.MaxBuy.Value == 1 then
+				return false,"YOU ALREADY OWN THIS ITEM" 
+			else
+				return false,"YOU CANNOT BUY MORE OF THIS ITEM" 
+			end
+		end
+
+		--if found.CurrentStock.Value <= 0 then return false,"OUT OF STOCK" end
+		if custom ~= nil then return end
+		if _G.CheckIfCan and not _G.CheckIfCan(plr.Character,nil,nil,nil,true) then return false,"YOU ARE TOO INJURED TO DO THIS RIGHT NOW" end
+		if vF.InventorySlots.Value + found.SlotUsage.Value > vF.InventorySlots.MaxValue then return end
+		if not isGamepass and stockV.Value <= 0 then return false,"OUT OF STOCK" end
+		if not isGamepass and custom ~= "Unlock" and not (UnlockCheck() or isRenting) then
+			game.ServerStorage.Events3.qUE_exPOTLOG:Fire("ZKLFXG890ZDFGJKN43SU8IOG",plr.Name,"Server tamper: " .. "Attempted to purchase item: '" .. tostring(chosen) .. "' at level: " .. tostring(pd.Level.Value),1,true)
+			return false, "NOT UNLOCKED" 
+		end
+		
+		if ReplicatedStorage.Values.Shop_OneGunOnly.Value and iS.Guns:FindFirstChild(chosen) then
+			for i,v in pairs(plr.Backpack:GetChildren()) do
+				if v:IsA("Tool") and iS.Guns:FindFirstChild(v.Name) then
+					return false,"ONE GUN ONLY!"
+				end
+			end
+			if char:GetAttribute("Shop_HasGun") then
+				return false,"ONE GUN ONLY!"
+			end
+		end
+		if ReplicatedStorage.Values.Shop_OneMeleeOnly.Value and iS.Melees:FindFirstChild(chosen) then
+			for i,v in pairs(plr.Backpack:GetChildren()) do
+				if v:IsA("Tool") and iS.Melees:FindFirstChild(v.Name) then
+					return false,"ONE MELEE ONLY!"
+				end
+			end
+		end
+		
+		if isUpgrade then
+			return false,"CANT BUY UPGRADES DIRECTLY!"
+		end
+		
+		local buyType = 1 -- 1 = cash, 2 = bank
+		
+		
+		local fee = GetShopBuyFee(plr,found,"m")
+
+		if client_canBankBuy and ReplicatedStorage.Values.ShopFromBank.Value and fee then
+			
+			if found:FindFirstChild("CustomBankBuyFee") then
+				fee = found.CustomBankBuyFee.Value
+			end
+			
+			if iPrice > cv.Value then 
+				if iPrice + fee > bv.Value then
+					return false,"NOT ENOUGH BANK"
+				else
+					iPrice += fee
+					buyType = 2
+				end
+				--return false,"NOT ENOUGH CASH"
+			end
+		else
+			if iPrice > cv.Value then 
+				return false,"NOT ENOUGH CASH"
+			end
+		end
+		
+		if found.MinSpend.Value > 0 and (not spends or spends < found.MinSpend.Value) then
+			return false,"YOU MUST SPEND ANOTHER " .. tostring("$" .. found.MinSpend.Value - (spends and spends or 0)) .. " TO PURCHASE THIS"
+		end
+		if not found.ForSale.Value then return end
+		
+		if found.Parent == ReplicatedStorage.Storage.ItemStats.Armour and char:GetAttribute("NO_ARMOR_PURCHASE") then
+			return false,"CANNOT PURCHASE RIGHT NOW"
+		end
+
+		IncreaseSpend("NJKXCVBI",plr,iPrice)
+		
+		local buyType2 = buyType == 1 and "Cash" or "Bank"
+		
+		ServerStorage.Events3.nMonee:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",plr,buyType2, -iPrice)
+		--found.CurrentStock.Value = found.CurrentStock.Value - 1
+
+		if not isGamepass then
+			stockV.Value = stockV.Value - 1
+		end
+
+		local tool = ServerStorage.Tools[chosen]:Clone()
+		
+		--local b = Instance.new("BoolValue")
+		--b.Name = "CanSell"
+		--b.Parent = tool
+		
+		if iType == "Guns" then
+			local appliedSkin, id = Events3.GetEquippedItemSkin:Invoke(plr,chosen)
+			--print(appliedSkin)
+			if appliedSkin then
+				SkinsHandlerM.ApplyFullSkin(tool,appliedSkin,plr, id)
+			end
+		end
+		
+		if iType == "Melees" then
+			local appliedSkin, id = Events3.GetEquippedItemSkin:Invoke(plr,chosen)
+			--print(appliedSkin)
+			if appliedSkin then
+				SkinsHandlerM.ApplyFullSkin(tool,appliedSkin,plr, id)
+			end
+		end
+		
+		tool:SetAttribute("StoreBought",true)
+		
+		if found:FindFirstChild("CantDrop") and found.CantDrop.Value then
+			tool:SetAttribute("CantDrop",true)
+		else
+			if ServerStorage.Values.Shop_DisableGunDropping.Value and iS.Guns:FindFirstChild(chosen) then
+				tool:SetAttribute("CantDrop",true)
+			elseif ServerStorage.Values.Shop_DisableMeleeDropping.Value and iS.Melees:FindFirstChild(chosen) then
+				tool:SetAttribute("CantDrop",true)
+			end
+		end
+		
+		tool.Parent = plr.Backpack
+
+		--vF.InventorySlots.Value = vF.InventorySlots.Value + found.SlotUsage.Value
+
+		--hum:EquipTool(tool)
+
+		bTools[plr][tool] = tool.Name
+		plrTable[plr] = cPlrData
+
+		return true,"PURCHASE COMPLETE"
+	end)
+	
+	if  _s then
+		return _e1,_e2,_e3,_e4
+	else
+		warn("Shop Error:",tostring(plr),tostring(_e1),tostring(_e2),tostring(_e3),tostring(_e4))
+	end
+end
+
+function AllowanceTimer()
+	--coroutine.resume(coroutine.create(function()
+	--	while wait(1) do
+
+	--	end
+	--end))	
+end
+
+local abusys = {}
+function ClaimAllowance(plr,atmP)
+	if ReplicatedStorage.Values.ShuttingDown.Value then return end
+	if ServerStorage.Values.RemoveATMs.Value then return end
+	
+	local pd2 = PlayerbaseData2:FindFirstChild(plr.Name)
+	if not pd2 or not pd2.Loaded.Value or pd2.NextAllowance.Value > 0 or not pd2.NextAllowance.Claim.Value or abusys[plr] then return end
+	if _G.CheckIfCan and not _G.CheckIfCan(plr.Character,"Any") then return false,"YOU ARE TOO INJURED TO DO THIS RIGHT NOW" end	
+	
+	if not (atmP and atmP.Parent and atmP:IsA("BasePart") and atmP.Name == "MainPart" and atmP:IsDescendantOf(workspace.Map.ATMz)) then return end
+	
+	local mag = (atmP.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+	if mag >= 10 then return end
+	
+	if _G.RAC_CHECK and not _G.RAC_CHECK("89RWE89SDFJWEP[O2398",plr) then return end
+	
+	abusys[plr] = true
+	delay(10,function()
+		abusys[plr] = nil
+	end)
+	
+	local pd = PlayerbaseData[plr.Name]
+	local cv = pd.Cash
+	local bv = pd.Bank
+	
+	local give = Settings.Allowance
+	local give_xp = Settings.Allowance_XP
+	
+	if pd.Gamepasses:FindFirstChild("Allowance") then
+		give *= Settings.GamepassAllowanceMulti
+		give_xp *= Settings.GamepassAllowanceMulti	
+	end
+	
+	local inGroup = pd.InGroup.Value
+	local hasPremium = false
+	
+	pcall(function()
+		if plr.MembershipType == Enum.MembershipType.Premium then
+			hasPremium = true
+		end
+	end)
+	--pcall(function()
+	--	inGroup = plr:IsInGroup(4165692) 
+	--end)
+	
+	if inGroup then
+		give += ((Settings.Allowance * Settings.GroupAllowanceMulti) - Settings.Allowance)
+		give_xp += ((Settings.Allowance_XP * Settings.GroupAllowanceMulti) - Settings.Allowance_XP)
+	end
+	
+	if hasPremium then
+		give += ((Settings.Allowance * Settings.PremiumAllowanceMulti) - Settings.Allowance)
+		--give_xp += ((Settings.Allowance_XP * Settings.PremiumAllowanceMulti) - Settings.Allowance_XP)
+		give_xp *= Settings.PremiumAllowanceMulti
+	end
+	
+	give *= _G.AllowanceCashMulti
+	give_xp *= _G.AllowanceXPMulti
+
+	give = math.max(0,give)
+	give_xp = math.max(0,give_xp)
+	
+	give = math.floor(give)
+	give_xp = math.floor(give_xp)
+	
+	--give = Round(give,5)
+	--give_xp = Round(give_xp,5)
+	
+	if not ServerStorage.Values.XpAllowance.Value then
+		give_xp = 0
+	end
+	
+	print(give,give_xp,inGroup,hasPremium)
+	
+	pd2.NextAllowance.Value = Settings.AllowanceTime * 60
+	pd2.NextAllowance.Claim.Value = false
+	
+	abusys[plr] = nil
+	
+	MoneyEvent:Fire("IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U",plr,"Bank",give)
+	if give_xp > 0 then
+		Events3.AyuP:Fire("KLJ8902209SANK8234LDFG0OKJAKA984231ZZ04LGXBNBZ1U912",plr,give_xp,false,true)
+	end
+	
+	if pd2.DoubleXP.Value and give_xp > 0 then
+		give_xp *= 2
+		give_xp = math.floor(give_xp)
+	end
+	
+	local randomNames = {
+		"gun_case_1";
+		"gun_case_2";
+		"gun_case_3";
+		"gun_case_4";
+		"winter_case_1";
+		"gun_case_ind";
+		"melee_case_1";
+		"melee_case_2";
+		"valentine_case_1";
+		"gun_case_5";
+		"hallows_case_1";
+		"aprilfools_case_1";
+	}
+
+	local GOLID = "OIJPG43R98UHUIJREJOKRFG98U0FWEROPIJKSDF0I908U09U23RKOJZD90432OIJ0FSD";
+	local result = game.ServerStorage.Events3.CSMTCNTRCT:Invoke(GOLID,"SpawnCase2", plr, randomNames[math.random(1, #randomNames)], math.random(70, 140))
+
+	local tab = {
+		Title = "Allowance paid";
+		Text = (give_xp and give_xp > 0 and "You were paid $" .. give .. "  & " .. give_xp .. " XP." .. " You were also granted skin crates.") or ("You were paid $" .. give .. "." .. " You were also granted skin crates.");
+		--Icon = "";
+		Duration = 15;
+		Button1 = "Close";
+	}
+
+	Events.Notification:FireClient(plr,tab,"allowance")
+
+	return true,"YOUR REQUEST WAS COMPLETED",2.5
+end
+
+
+local function newPlr(plr)
+	if ReplicatedStorage.Values.ShuttingDown.Value then return end
+	
+	local pData = {Spends = 0;BoughtTools = {}}
+	
+	currentATM[plr] = nil	
+	
+	local function updt()
+		plrTable[plr] = pData
+	end
+	updt()
+	
+	local function newChar(char)
+		wait()
+		if not (char and char.Parent) then return end
+		
+		pData.LifeSpends = 0
+		
+		local hum = char:WaitForChild("Humanoid")
+		local root = char:WaitForChild("HumanoidRootPart")
+		
+		local maxTimer = 80;
+		local maxCooldown = 60;
+
+		pData.PROT = {
+			Enabled = false;
+			Code = 0;
+			Tick = 0;
+		}
+		pData.PROT.Timer = maxTimer
+		pData.PROT.Cooldown = 0
+		
+		char.ChildRemoved:Connect(function(t)
+			if t:IsA("Tool") or t.ClassName == "Folder" then
+				UpdateInv(plr)
+			end
+		end)
+		
+		char.ChildAdded:Connect(function(t)
+			if t:IsA("Tool") or t.ClassName == "Folder" then
+				UpdateInv(plr)
+			end
+		end)	
+		
+		plr.Backpack.ChildAdded:Connect(function()
+			UpdateInv(plr)
+		end)
+		
+		plr.Backpack.ChildRemoved:Connect(function()
+			UpdateInv(plr)
+		end)
+		
+		pData.PROT.ProtectFunc = function(part,wasSafeZone)
+			--print("prot",13)
+			if not (char.Parent and hum.Parent and root.Parent) then return end
+			--print("prot",14)
+			if pData.PROT.Cooldown > 0
+				or pData.PROT.Enabled then return end
+			--print("prot",15)
+			if hum.Health <= 0 then return end
+			--print("prot",16)
+			
+			if not wasSafeZone then
+				if typeof(part) ~= "Instance"  or not part:IsA("BasePart") or (part.Position - root.Position).Magnitude > 30 then return end
+			end
+			--print("prot",17)
+			
+			if ServerStorage.Values.DisableBuyersProtection.Value then
+				return
+			end
+			
+			local code = math.random()
+			pData.PROT.Code = code
+			
+			hum:UnequipTools()
+				
+			local function prCheck(x)		
+				if hum.Health <= 0 or
+					_G.InCombatCheck(plr,true)
+					or not root.Parent
+					or (not x and not pData.PROT.Enabled)
+					or not hum.Parent
+					or (not wasSafeZone and (root.Position - part.Position).Magnitude > 15)
+					or (pData.PROT.Timer <= 0 and pData.PROT.Cooldown > 0)
+					or (not x and (pData.PROT.Timer <= 0 or pData.PROT.Cooldown > 0))
+					or plr.Character ~= char
+					or char:FindFirstChildOfClass("Tool")
+					or pData.PROT.Code ~= code
+				then
+					return false
+				end
+				
+				return true
+			end
+
+			Events.BYZERSPROTEC:FireClient(plr,"...","...")
+			delay(0,function()
+				pData = plrTable[plr]
+				--print("prot",18, pData.PROT.Code ~= code,pData.PROT.Enabled)
+				if pData.PROT.Code ~= code or not prCheck(true) or pData.PROT.Enabled then return end
+				--print("prot",19)
+				
+				pData.PROT.Enabled = true
+				
+			
+				
+			
+				pData.PROT.Tick = tick()
+				
+				if not wasSafeZone then
+					char.HumanoidRootPart.Anchored = true
+					char.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+					Events.ChangeState:FireClient(plr,Enum.HumanoidStateType.Running,3)
+					char.HumanoidRootPart.Velocity = Vector3.new()
+				end
+				
+				updt()
+			
+				local CON
+				
+				local ff
+				CON = char.ChildAdded:Connect(function(c)
+					if c:IsA("Tool") then
+						CON:Disconnect()
+						CON = nil
+						if ff and ff.Parent then
+							ff:Destroy()
+						end
+						pData.PROT.UnprotectFunc()
+					end
+				end)
+				
+				ff = Instance.new("ForceField")
+				game.Debris:AddItem(ff,maxTimer)
+				ff.Name = "ProtectionFF"
+				ff.Parent = char
+				pData.PROT.OBJ = ff
+
+				_G.AffectChar(char,"B",0.3)
+				
+				repeat task.wait(1)
+					if prCheck() and CON then
+						pData.PROT.Timer = pData.PROT.Timer - 1
+						Events.BYZERSPROTEC:FireClient(plr,"Active",pData.PROT.Timer)
+						updt()
+					else
+						break
+					end
+				until not prCheck()	or not CON
+				
+				if CON then
+					CON:Disconnect()
+					CON = nil
+				end
+				
+				if pData.PROT.Enabled then
+					pData.PROT.UnprotectFunc()	
+				end
+			end)	
+		end
+		
+		pData.PROT.UnprotectFunc = function()
+			pData.PROT.Code = math.random()
+			
+			if not pData.PROT.Enabled then return end
+			
+			pData.PROT.Enabled = false
+			
+			if pData.PROT.OBJ and pData.PROT.OBJ.Parent then
+				pData.PROT.OBJ:Destroy()
+			end
+			pData.PROT.OBJ = nil
+			
+			if char and char.Parent and char:FindFirstChild("HumanoidRootPart") then
+				char.HumanoidRootPart.Anchored = false
+			end
+			
+			updt()
+			
+			local function prCheck()
+				if hum.Health <= 0 or
+					not root.Parent
+					or pData.PROT.Enabled
+					or not hum.Parent
+					or pData.PROT.Timer > 0
+					or pData.PROT.Cooldown <= 0
+					or plr.Character ~= char
+				then
+					return false
+				end
+				
+				return true
+			end
+			
+			if pData.PROT.Timer <= 0 then
+				pData.PROT.Cooldown = maxCooldown
+				Events.BYZERSPROTEC:FireClient(plr,"Cooldown",pData.PROT.Cooldown)
+				repeat wait(1)
+					if prCheck() then
+						pData.PROT.Cooldown = pData.PROT.Cooldown - 1
+						Events.BYZERSPROTEC:FireClient(plr,"Cooldown",pData.PROT.Cooldown)
+						updt()
+					else
+						break
+					end
+				until not prCheck()
+					
+				if pData.PROT.Cooldown <= 0 then
+					pData.PROT.Timer = maxTimer
+				end
+			else
+				task.delay(maxCooldown,function()
+					if plrTable[plr] then
+						pData = plrTable[plr]
+						if tick() - pData.PROT.Tick >= maxCooldown then
+							pData.PROT.Timer = maxTimer
+							updt()
+						end
+					end
+				end)
+			end
+		end
+		
+		bTools[plr] = {}
+		
+		updt()
+		
+		hum.Died:Connect(function()
+			bTools[plr] = {}
+			updt()
+		end)
+	end
+	if plr.Character then
+		newChar(plr.Character)
+	end
+	plr.CharacterAdded:Connect(newChar)
+end
+
+local function leavingPlr(plr)
+	task.wait(0.5)
+	
+	--print("leaingPlr",plr,1)
+	
+	if plr:GetAttribute("ANCESTRY_CHANGED") or plr:GetAttribute("LEAVE_SAVING") then
+		local ev = Instance.new("BindableEvent")
+		local active = true
+		
+		local con
+		task.spawn(function()
+			con = plr:GetAttributeChangedSignal("LEAVE_SAVED"):Wait()
+			if active then
+				ev:Fire()
+			end
+		end)
+		task.delay(60,function()
+			if active then
+				ev:Fire()
+			end
+		end)
+		
+		--print("leaingPlr",plr,2)
+		ev.Event:Wait()
+		active = false
+		pcall(function()
+			if con then
+				con:Disconnect()
+			end
+			ev:Destroy()
+		end)
+		ev = nil
+	
+		task.wait()
+	end	
+	print("leaingPlr",plr,3)
+	
+	plrTable[plr] = nil
+	currentATM[plr] = nil
+	bTools[plr] = nil
+end
+
+--Events3.ClearPlayerBTools.Event:Connect(leavingPlr)
+
+print("S4")
+
+M.MainLoop = function()
+	if RestockStore then
+		if ReplicatedStorage.Values.GlobalStocks.Value then
+			local c = ReplicatedStorage.Values.GlobalStocks
+			
+			local rtime = c.RestockTime
+			
+			if rtime.Value < 9e9 then
+				rtime.Value = rtime.Value - 1
+
+				if rtime.Value <= 0 then
+					RestockStore(c,true)
+				end
+			end
+		else
+			for _,c in pairs(workspace.Map.Shopz:GetChildren()) do
+				local rtime = c.RestockTime
+
+				rtime.Value = rtime.Value - 1
+
+				if rtime.Value <= 0 then
+					RestockStore(c)
+				end
+			end
+		end
+	
+	end
+	
+	if ReplicatedStorage.Values.ShuttingDown.Value then return end
+
+	for _,plr in pairs(Players:GetPlayers()) do
+		local pd2 = PlayerbaseData2:FindFirstChild(plr.Name)
+		if pd2 and pd2.Loaded.Value then
+
+			if pd2.DoubleXP.Value and not pd2.DoubleXP.Perm.Value then
+				pd2.DoubleXP.Timer.Value = pd2.DoubleXP.Timer.Value - 1
+				if pd2.DoubleXP.Timer.Value <= 0 then
+					pd2.DoubleXP.Value = false
+
+					local tab = {
+						Title = "Double-XP";
+						Text = "Your Double-XP has expired!";
+						--Icon = "";
+						Duration = 30;
+						Button1 = "Close";
+					}
+					Events.Notification:FireClient(plr,tab,"lost")	
+				end
+			end
+
+			if not ReplicatedStorage.Values.AllowanceDisabled.Value and plr.Character and plr.Character:FindFirstChild("Humanoid") and plr.Character:FindFirstChild("Humanoid").Health > 0 then
+				if pd2.NextAllowance.Value > 0 and not pd2.NextAllowance.Claim.Value then
+					pd2.NextAllowance.Value = pd2.NextAllowance.Value - 1
+				else
+
+					if tick() - pd2.NextAllowance.Tick.Value > 180 then
+						--if not pd2.NextAllowance.Claim.Value then
+						pd2.NextAllowance.Tick.Value = tick()
+						local tab = {
+							Title = "Free Cases!";
+							Text = "Ready to be claimed at an ATM.";
+							--Icon = "";
+							Duration = 60;
+							Button1 = "Close";
+						}
+						Events.Notification:FireClient(plr,tab,"BEEP")
+					end	
+					pd2.NextAllowance.Claim.Value = true
+				end
+			end
+		end
+	end
+end
+
+M.SetUp = function(settinz)
+	
+	print("S5")
+	Settings = settinz
+	
+	local function UpdateStats()
+		--pcall(function()
+		local function GetSellPrice(found)
+			if found:FindFirstChild("Sellable") and found.Sellable.Value then
+				local price = found.Price.Value
+
+				if found.Sellable:FindFirstChild("CustomSellPrice") then
+					price = found.Sellable.CustomSellPrice.Value
+				else
+					price = price * found.Sellable.Perc.Value
+					price = Round(5,price)
+				end
+
+				return price
+			else
+				return 0
+			end
+		end
+
+		local function UpdateGunStats()
+			if iS.Misc:FindFirstChild("SB-Launcher") then
+				iS.Misc["SB-Launcher"].Parent = iS.Guns
+			end
+			if iS.Misc:FindFirstChild("SBL-MK2") then
+				iS.Misc["SBL-MK2"].Parent = iS.Guns
+			end
+			if iS.Misc:FindFirstChild("HL-MK2") then
+				iS.Misc["HL-MK2"].Parent = iS.Guns
+			end
+			if iS.Misc:FindFirstChild("FireworkLauncher") then
+				iS.Misc["FireworkLauncher"].Parent = iS.Guns
+			end
+
+			local Calculator = require(script.GunCalculator)
+			local guns = iS.Guns:GetChildren()
+			table.sort(guns, function(a, b)
+				return a.Price.Value < b.Price.Value
+			end)
+
+			local op = {}
+
+			for _,v in pairs(guns) do
+				local bars = script.GunBars:Clone()
+				bars.Name = "Bars"
+				
+				local damage,damagePerc = Calculator:GetDamage(v.Name)
+				local fireRate,ratePerc = Calculator:GetFireRate(v.Name)
+				local mobility,mobilityPerc = Calculator:GetMobility(v.Name)
+				local accuracy,accuracyPerc = Calculator:GetAccuracy(v.Name)
+				local damageRange,damageRangePerc = Calculator:GetDamageRange(v.Name)
+				
+				local recoil,recoilPerc = Calculator:GetRecoilControl(v.Name)
+				local armor,armorPerc = Calculator:GetArmorPenetration(v.Name)
+				
+				local isExplosive = Calculator:GetExplosive(v.Name)
+				
+				bars.FireRate.Value = fireRate
+				bars.FireRate.Bar.Value = ratePerc
+				
+				bars.Mobility.Value = mobility
+				bars.Mobility.Bar.Value = mobilityPerc
+				
+				--bars.HipAccuracy.Value = accuracy
+				--bars.HipAccuracy.Bar.Value = accuracyPerc
+				
+				bars.MaxDamageRange.Value = damageRange
+				bars.MaxDamageRange.Bar.Value = damageRangePerc
+				
+				bars.RecoilControl.Value = recoil
+				bars.RecoilControl.Bar.Value = recoilPerc
+				
+				if armorPerc then
+					bars.ArmorPenetration.Value = armor
+					bars.ArmorPenetration.Bar.Value = armorPerc
+					
+					bars.Damage.Value = damage
+					bars.Damage.Bar.Value = damagePerc
+				else
+					bars.ArmorPenetration:Destroy()
+					bars.Damage:Destroy()
+				end
+			
+				bars.Ammo.Value = 		Calculator:GetAmmo(v.Name)
+				bars.FireMode.Value = 	Calculator:GetFireMode(v.Name)
+				
+				if v:FindFirstChild("CustomBars") then
+					for _,z in pairs(v.CustomBars:GetChildren()) do
+						z.Parent = bars
+					end
+				end
+
+				bars.Parent = v
+
+				local rt = v.Desc.Value
+
+				local t = ""
+				--t = t ..			"Ammo: " .. Calculator:GetAmmo(v.Name)
+				--t = t .. "\n ‎ ‏‏‎ ‎\n" ..	"Fire mode(s): " .. Calculator:GetFireMode(v.Name)
+				--t = t .. "\n ‎‏‏‎ ‎ \n" .. rt
+				t = rt
+
+				v.Desc.Value = t
+
+				if v:FindFirstChild("Sellable") and v.Sellable.Value then
+					local x = Instance.new("IntValue")
+					x.Name = "Price"
+					x.Value = GetSellPrice(v)
+					x.Parent = v.Sellable
+				end			
+			end
+
+			local op = {}
+
+			for _,v in pairs(guns) do
+				if not op[v] then
+					op[v]  = v.Parent
+					v.Parent = nil
+				end
+			end
+			for _,v in pairs(guns) do
+				v.Parent = op[v]
+			end
+
+			if iS.Guns:FindFirstChild("SB-Launcher") then
+				iS.Guns["SB-Launcher"].Parent = iS.Misc
+			end
+			if iS.Guns:FindFirstChild("HL-MK2") then
+				iS.Guns["HL-MK2"].Parent = iS.Misc
+			end
+			if iS.Guns:FindFirstChild("SBL-MK2") then
+				iS.Guns["SBL-MK2"].Parent = iS.Misc
+			end
+		end
+
+		local function UpdateMeleeStats()
+			local Calculator = require(script.MeleeCalculator)
+			local melees = iS.Melees:GetChildren()
+
+			table.sort(melees, function(a, b)
+				return a.Price.Value < b.Price.Value
+			end)
+
+			for _,v in pairs(melees) do
+				local bars = v.Bars
+
+				for _,v in pairs(script.MeleeBars:GetChildren()) do
+					v:Clone().Parent = bars
+				end
+				
+				local stamina,stamPerc = Calculator:GetStamina(v.Name)
+				local damage,damagePerc = Calculator:GetDamage(v.Name)
+				local mobility,mobilityPerc = Calculator:GetMobility(v.Name)
+
+				bars.Damage.Value =		damage
+				bars.Damage.Bar.Value = damagePerc
+				
+				bars.Stamina.Value =	stamina
+				bars.Stamina.Bar.Value = stamPerc
+				
+				bars.Mobility.Value = mobility
+				bars.Mobility.Bar.Value = mobilityPerc
+				
+				Calculator:UpdateAttackStats(v.Name,bars)
+
+				if v:FindFirstChild("Sellable") and v.Sellable.Value then
+					local x = Instance.new("IntValue")
+					x.Name = "Price"
+					x.Value = GetSellPrice(v)
+					x.Parent = v.Sellable
+				end	
+			end
+		end
+
+		local function UpdateThrowablesStats()
+			local throwables = iS.Throwables:GetChildren()
+
+			table.sort(throwables, function(a, b)
+				return a.Price.Value < b.Price.Value
+			end)
+
+			for _,v in pairs(throwables) do
+				v.Parent = nil
+			end
+			for _,v in pairs(throwables) do
+				v.Parent = iS.Throwables
+				if v:FindFirstChild("Sellable") and v.Sellable.Value then
+					
+				end	
+			end
+
+		end
+
+		local function UpdateArmourStats()
+			local armour = iS.Armour:GetChildren()
+
+			table.sort(armour, function(a, b)
+				return a.Price.Value < b.Price.Value
+			end)
+
+			local Calculator = require(script.ArmorCalculator)
+			
+			for _,v in pairs(armour) do
+				local n1 
+				local n2
+				
+				if v:FindFirstChild("CustomBars") then
+					local x = v.CustomBars:FindFirstChild("Armor")
+					if x then
+						n2 = x.Value
+					end
+
+					local x2 = v.CustomBars:FindFirstChild("Melee")
+					if x2 then
+						n1 = x2.Value
+					end
+				end
+				
+				local bars,config = Calculator:UpdateStats(v.Name)
+				if bars then
+					if v:FindFirstChild("Bars") then
+						for i,z in pairs(bars:GetChildren()) do
+							z.Parent = v.Bars
+						end
+						bars:Destroy()
+					else
+						bars.Parent = v
+					end	
+				end
+				
+				v.Parent = iS.Armour
+				if v:FindFirstChild("Sellable") and v.Sellable.Value then
+					local x = Instance.new("IntValue")
+					x.Name = "Price"
+					x.Value = GetSellPrice(v)
+					x.Parent = v.Sellable
+				end
+				
+				if config and v:FindFirstChild("SlotUsage")then
+					local x = Instance.new("NumberValue")
+					x.Name = "DisplaySlots"
+					x.Value = config.Slots or 0
+					x.Parent = v.SlotUsage
+				end
+				
+				spawn(function()
+					if n2 then
+						local bars,config = Calculator:UpdateStats(n2)
+						if bars then
+							if v:FindFirstChild("Bars") then
+								for i,z in pairs(bars:GetChildren()) do
+									z.Parent = v.Bars
+								end
+								bars:Destroy()
+							else
+								bars.Parent = v
+							end
+						end
+						
+						if config and v:FindFirstChild("SlotUsage")then
+							local x = Instance.new("NumberValue")
+							x.Name = "DisplaySlots"
+							x.Value = config.Slots or 0
+							x.Parent = v.SlotUsage
+						end
+					end
+					wait()
+					if n1 then
+						local bars = iS.Melees:FindFirstChild(n1) and iS.Melees[n1]:FindFirstChild("Bars") and iS.Melees[n1].Bars:Clone()
+						if bars then
+							if bars:FindFirstChild("Mobility") then
+								bars.Mobility:Destroy()
+							end
+							
+							if v:FindFirstChild("Bars") then
+								for i,z in pairs(bars:GetChildren()) do
+									z.Parent = v.Bars
+								end
+								bars:Destroy()
+							else
+								bars.Parent = v
+							end
+							
+							if v.SlotUsage:FindFirstChild("DisplaySlots") then
+								v.SlotUsage.DisplaySlots:Destroy()
+							end
+							v.SlotUsage.Value = iS.Melees[n1].SlotUsage.Value
+						end
+					end
+				end)
+			end
+		end
+
+		local function UpdateMiscStats()
+			local misc = iS.Misc:GetChildren()
+
+			table.sort(misc, function(a, b)
+				return a.Price.Value < b.Price.Value
+			end)
+
+			for _,v in pairs(misc) do
+				v.Parent = nil
+			end
+			for _,v in pairs(misc) do
+				v.Parent = iS.Misc
+				if v:FindFirstChild("Sellable") and v.Sellable.Value then
+					local x = Instance.new("IntValue")
+					x.Name = "Price"
+					x.Value = GetSellPrice(v)
+					x.Parent = v.Sellable
+				end	
+			end
+		end
+
+		print("S6")
+		
+		wait()
+		--UpdateGunStats()
+		wait()
+		--UpdateMeleeStats()
+		wait()
+		UpdateThrowablesStats()
+		wait()
+		UpdateArmourStats()
+		wait()
+		--UpdateMiscStats()
+		wait()
+		
+		print("S7")
+
+		for _,v in pairs(iS:GetDescendants()) do
+			if v.Name == "SlotUsage" and not toolSlots[v.Parent.Name] then
+				toolSlots[v.Parent.Name] = v.Value
+			end
+		end
+		
+		print("S8")
+		--end)
+	end
+
+	--rT = Instance.new("IntConstrainedValue")
+	--rT.MaxValue = 1000
+	--rT.MinValue = 0
+	--rT.Value = 0
+	--rT.Name = "RestockTime"
+	--rT.Parent = ReplicatedStorage
+
+	--	for _,v in pairs(iS:GetChildren()) do
+	--		for _,x in pairs(v:GetChildren()) do
+	--			if x:FindFirstChild("MaxStock") then
+	--				local z = x["MaxStock"]:Clone()
+	--				z.Name = "CurrentStock"
+	--				z.Parent = x
+	--			end
+	--		end
+	
+	print("S10")
+
+	for _,atm in pairs(workspace.Map.ATMz:GetChildren()) do
+		local val = Instance.new("Folder",atm)
+		val.Name = "Values"
+		local busy = Instance.new("BoolValue",val)
+		busy.Name = "Busy"
+		local user = Instance.new("ObjectValue",val)
+		user.Name = "User"
+
+		local screen = atm.Parts:FindFirstChild("Screen")
+		if screen then
+			screen:GetPropertyChangedSignal("Color"):Connect(function()
+				local color = screen.Color
+				
+				if screen:FindFirstChild("PointLight") then
+					screen.PointLight.Color = color
+					screen.PointLight.Shadows = false
+					screen.PointLight.Range = 12
+
+					if color == ATM_Settings.Color0 then
+						screen.PointLight.Brightness = 2
+					elseif color == ATM_Settings.ColorPend then
+						screen.PointLight.Brightness = 2.5
+					elseif color == ATM_Settings.ColorComplete or color == ATM_Settings.ColorError then
+						screen.PointLight.Brightness = 3.5
+					end
+				end
+			end)
+		end
+	end
+	
+	print("S11")
+	
+	spawn(function()
+		ReplicatedStorage:WaitForChild("GameLoaded",1000)
+		--	end
+		
+		if ReplicatedStorage.Values.GlobalStocks.Value then
+			local stocks = Instance.new("Folder")
+			stocks.Name = "CurrentStocks"
+			stocks.Parent = ReplicatedStorage.Values.GlobalStocks
+
+			local rtime = Instance.new("IntValue")
+			rtime.Name = "RestockTime"
+			rtime.Value = 2
+			rtime.Parent = ReplicatedStorage.Values.GlobalStocks
+		else
+			for _,v in pairs(workspace.Map.Shopz:GetChildren()) do
+				local stocks = Instance.new("Folder")
+				stocks.Name = "CurrentStocks"
+				stocks.Parent = v
+
+				local rtime = Instance.new("IntValue")
+				rtime.Name = "RestockTime"
+				rtime.Value = 2
+				rtime.Parent = v
+				
+				local dm = v:FindFirstChild("DealerMan") or v:FindFirstChild("ArmoryMan")
+				if dm then
+					for i,v in pairs(dm:GetDescendants()) do
+						if v:IsA("BasePart") and v.Name == "HumanoidRootPart" then
+							v:SetAttribute("RayHandlerIG",true)
+						end
+					end
+				end
+			end
+		end
+
+		print("S9")
+
+		for _,v in pairs(iS:GetChildren()) do
+			for _,x in pairs(v:GetChildren()) do	
+				if x:FindFirstChild("IsUpgrade") and x.IsUpgrade:FindFirstChild("OriginName") and x.Parent:FindFirstChild(x.IsUpgrade.OriginName.Value) then
+					for _,b in pairs(x.Parent[x.IsUpgrade.OriginName.Value]:GetChildren()) do
+						if b.Name ~= "CanUpgrade" and b.Name ~= "IsUpgrade" and b.Name ~= "APassOnly" and not x:FindFirstChild(b.Name) then
+							b:Clone().Parent = x
+						end
+					end
+				end
+				
+				if x:FindFirstChild("EventItem") and x.EventItem.Value then
+					if ServerStorage.Values.EventItems.Value then
+						x.ForSale.Value = true
+					end
+				end
+				if x:FindFirstChild("IsOP") and x.IsOP.Value then
+					if ServerStorage.Values.NoOP.Value then
+						x.ForSale.Value = false
+					end
+				end
+				
+				if x:FindFirstChild("IsGamepass") and x.IsGamepass.Value then
+					if ServerStorage.Values.NoPassItems.Value then
+						x.ForSale.Value = false
+					end
+				end
+				
+				if x:FindFirstChild("StandardOnly") and x.StandardOnly.Value and not string.find(string.lower(ReplicatedStorage.Values.GameMode.Value),"standard") then
+					x.ForSale.Value = false
+				end
+				
+				if not x.ForSale.Value then
+					x.MaxStock.Value = 0
+					--x.MinStock.Value = 0
+					--print(x.Name)
+				end
+				
+				if x:FindFirstChild("MaxStock") then
+					local function doTing(c,isGlobal)
+						local inStore = isGlobal or x.SellStations:FindFirstChild(c.Type.Value)
+						if inStore and not (x:FindFirstChild("IsUpgrade") and x.IsUpgrade.Value) then
+							local z = Instance.new("IntConstrainedValue")
+							z.Name = x.Name
+
+							local stock = x.MaxStock.Value
+
+							local multi = (isGlobal and 1) or (inStore:FindFirstChild("Multi") and inStore:FindFirstChild("Multi").Value or 1)
+							stock = stock * multi
+
+							stock = math.floor(stock)
+
+							local b = Instance.new("ObjectValue")
+							b.Name = "Real"
+							b.Value = x
+							b.Parent = z
+							
+							if not isGlobal then
+								if inStore:FindFirstChild("Multi") then
+									local m = Instance.new("NumberValue")
+									m.Name = "Multi"
+									m.Value = multi
+									m.Parent = z
+								end
+
+								if inStore:FindFirstChild("MinStockAdd") then
+									local m = Instance.new("NumberValue")
+									m.Name = "MinStockAdd"
+									m.Value = inStore.MinStockAdd.Value
+									m.Parent = z
+								end
+							end
+
+							local multi = not (x:FindFirstChild("NoStockMulti") and x.NoStockMulti.Value) and math.floor(ServerStorage.Values.StockMulti.Value + 0.5) or 1
+
+							z.MaxValue = math.floor(stock * multi)
+							z.Value = 0
+							z.Parent = c.CurrentStocks						
+						end
+					end
+					
+					if ReplicatedStorage.Values.GlobalStocks.Value then
+						if ReplicatedStorage.Values.GlobalStocks.Value then
+							doTing(ReplicatedStorage.Values.GlobalStocks,true)
+						end
+					else
+						for _,c in pairs(workspace.Map.Shopz:GetChildren()) do
+							doTing(c)
+						end
+					end
+				end
+
+				local modules = {}
+				if x:FindFirstChild("OnSell") then
+					modules.OnSell = require(x.OnSell)
+					x.OnSell.Parent = nil
+				end
+				if x:FindFirstChild("OnUnlock") then
+					modules.OnUnlock = require(x.OnUnlock)
+					x.OnUnlock.Parent = nil
+				end
+				if x:FindFirstChild("OnRefill") then
+					modules.OnRefill = require(x.OnRefill)
+					x.OnRefill.Parent = nil
+				end
+				itemModules[x] = modules
+			end
+		end
+		UpdateStats()
+		RestockHandler()
+		AllowanceTimer()
+	end)
+	
+	
+	print("S12")
+	--Restock(false)
+
+	local gamepassItems = {}
+	local productItems = {}
+
+	local function UpdateGamepassSaleMode()
+		for i,v in pairs(gamepassItems) do
+			local info 
+
+			pcall(function()
+				info = MarketplaceService:GetProductInfo(v.id, Enum.InfoType.GamePass)
+			end)
+
+			if info then
+				v.inst.IsGamepass.ForSale.Value = info.IsForSale
+			end
+			
+			RunService.Heartbeat:Wait()
+		end
+	end
+	
+	local function UpdateProductItems()
+		for i,v in pairs(productItems) do
+			local info 
+
+			pcall(function()
+				info = MarketplaceService:GetProductInfo(v.id, Enum.InfoType.Product)
+			end)
+
+			if info then
+				v.inst.IsDevProduct.ForSale.Value = info.PriceInRobux > 0 and info.PriceInRobux < 1000000
+				v.inst.Price.Value = info.PriceInRobux
+			end
+
+			RunService.Heartbeat:Wait()
+		end
+	end
+	
+	delay(2,function()
+		for _,v in pairs(iS:GetChildren()) do
+			for _,x in pairs(v:GetChildren()) do
+				if x:FindFirstChild("IsGamepass") and x.IsGamepass.Value then		
+					local b = Instance.new("BoolValue")
+					b.Name = "ForSale"
+					b.Parent = x.IsGamepass
+
+					table.insert(gamepassItems,
+						{
+							id = x.IsGamepass.ID.Value;
+							inst = x;
+						}
+					)
+				elseif x:FindFirstChild("IsDevProduct") and x.IsDevProduct.Value then
+					local b = Instance.new("BoolValue")
+					b.Name = "ForSale"
+					b.Parent = x.IsDevProduct
+
+					table.insert(productItems,
+						{
+							id = x.IsDevProduct.ID.Value;
+							inst = x;
+						}
+					)
+
+					x.IsDevProduct.ID.Changed:Connect(function()
+						for i,v in pairs(productItems) do
+							if v.inst == x then
+								v.id = x.IsDevProduct.ID.Value
+
+								productItems[i] = v
+								break
+							end
+						end
+					end)
+				end
+			end
+		end
+	end)
+	
+	print("S13")
+	game.Players.PlayerAdded:Connect(newPlr)
+	game.Players.PlayerRemoving:Connect(leavingPlr)
+
+	for _,v in pairs(game.Players:GetPlayers()) do
+		newPlr(v)
+	end
+
+	print("S14")
+
+	ATM_Remote.OnServerInvoke = ATM_Ting
+	Shop_Remote.OnServerInvoke = Shop
+	ClaimAllowanceEvent.OnServerInvoke = ClaimAllowance
+	Events3.GetShopData.OnInvoke = GetShopData
+	Events3.SetBoughtTools.Event:Connect(SetTools)
+	Events3.AddBoughtTool.Event:Connect(AddTool)
+	Events3.RemoveBoughtTool.Event:Connect(RemoveTool)
+	Events3.IncLifeSpends.Event:Connect(IncreaseSpend)
+	
+	Events3.GetShopSpends.OnInvoke = function(plr)
+		if not plrTable[plr] then return 0 end	
+
+		local spends = plrTable[plr].LifeSpends
+
+		if not spends then spends = 0 end
+		
+		return spends
+	end
+	
+	Shop_Event2.OnServerEvent:Connect(function(plr,m)
+		if m == "UpdateSlots" then
+			UpdateInv(plr)
+		end
+	end)
+
+	UpdateInvEvent.Event:Connect(UpdateInv)
+	Events.BYZERSPROTEC.OnServerEvent:Connect(function(plr,mode,typ,part,sType)
+		--print("prot",mode,typ,part,sType)
+		local data = plrTable[plr]
+		local pd = PlayerbaseData[plr.Name]
+		if not data then return end
+		--print("prot",2)
+		if not pd then return end
+		--print("prot",3)
+		
+		if _G.RAC_CHECK and not _G.RAC_CHECK("89RWE89SDFJWEP[O2398",plr) then return end
+		
+		local vf = _G.GVF(plr.Name)
+
+		local ISZ = false
+		
+		if vf and vf.CombatArea.InSafeZone.Value then
+			local char = plr.Character
+			if char and char.Parent and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
+				if mode then
+					char.HumanoidRootPart.Anchored = true
+					char.Humanoid:ChangeState(Enum.HumanoidStateType.Running)
+					Events.ChangeState:FireClient(plr,Enum.HumanoidStateType.Running,3)
+					char.HumanoidRootPart.Velocity = Vector3.new()
+				else
+					char.HumanoidRootPart.Anchored = false
+				end
+			end
+			ISZ = true
+			--return
+		end
+
+		if mode then
+			--print("prot",4)
+			if _G.CheckIfCan and not _G.CheckIfCan(plr.Character,"Any") then return end
+			--print("prot",5)
+			if _G.InCombatCheck(plr,true) then return end
+			--print("prot",6)
+			if typeof(part) ~= "Instance" or not part.Parent then return end
+			--print("prot",7)
+			if typ == "shop" then
+				--print("prot",8)
+				if not part:IsA("BasePart") or part.Name ~= "MainPart" or not part:IsDescendantOf(workspace.Map.Shopz) then return end
+				--print("prot",9)
+				if part.Parent.Type.Value ~= sType then return end
+				--print("prot",10)
+				--if sType == "LegalStore" and not pd.Gamepasses:FindFirstChild("Weaponry") then return end
+				--print("prot",11)
+			elseif typ == "ATM" then
+				if not (part and part.Parent and part:IsA("BasePart") and part.Name == "MainPart" and part:IsDescendantOf(workspace.Map.ATMz)) then return end			
+			end
+
+			--		local mag = (part.Position - plr.Character.HumanoidRootPart.Position).Magnitude
+			--		if mag >= 10 then return end
+			--print("prot",12)
+			data.PROT.ProtectFunc(part)
+		else
+			if not ISZ then
+				data.PROT.UnprotectFunc()
+			end
+			if plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+				plr.Character.HumanoidRootPart.Anchored = false
+			end
+		end
+	end)
+	
+	Events3.BYZERSPROTEC_S.Event:Connect(function(plr,mode,typ)
+		--print("prot",mode,typ)
+		local data = plrTable[plr]
+		local pd = PlayerbaseData[plr.Name]
+		if not data then return end
+		--print("prot",2)
+		if not pd then return end
+		--print("prot",3)
+		
+		if mode then
+			data.PROT.ProtectFunc(nil,true)
+		else
+			data.PROT.UnprotectFunc()
+		end
+	end)
+	
+	ServerStorage.Events3.RESTOCK.Event:Connect(function(a)
+		if a ~= "LPKRGF90T430WFLPDS" then
+			return
+		end
+
+		M.RestockAll()
+	end)
+	
+	if (Settings.ShopFromBank and Settings.ShopFromBank.Enabled) and not ReplicatedStorage.Values.DisableBank.Value then
+		ReplicatedStorage.Values.ShopFromBank.Value = true
+		ReplicatedStorage.Values.ShopFromBank.MinFee.Value = Settings.ShopFromBank.MinFee
+	end
+	
+	local function HandleATMsActive()
+		local ogMachines = {}
+		for _,machine in pairs(workspace.Map.ATMz:GetChildren()) do
+			table.insert(ogMachines,machine)
+		end
+		local currentDisableState = false
+		local function UpdateDisabled()
+			if currentDisableState == ServerStorage.Values.RemoveATMs.Value then
+				return
+			end
+
+			currentDisableState = ServerStorage.Values.RemoveATMs.Value
+
+			if currentDisableState then
+				for i,v in pairs(ogMachines) do
+					v.Parent = nil
+				end
+			else
+				for i,v in pairs(ogMachines) do
+					v.Parent = workspace.Map.ATMz
+				end
+			end
+		end
+		if ServerStorage.Values.RemoveATMs.Value then
+			UpdateDisabled()
+		end
+		ServerStorage.Values.RemoveATMs.Changed:Connect(UpdateDisabled)
+	end
+	
+	local function HandleDealersActive()
+		local ogs = {}
+		for _,machine in pairs(workspace.Map.Shopz:GetChildren()) do
+			table.insert(ogs,machine)
+		end
+		local currentDisableState = false
+		local function UpdateDisabled()
+			if currentDisableState == ServerStorage.Values.RemoveDealers.Value then
+				return
+			end
+
+			currentDisableState = ServerStorage.Values.RemoveDealers.Value
+
+			if currentDisableState then
+				for i,v in pairs(ogs) do
+					v.Parent = nil
+				end
+			else
+				for i,v in pairs(ogs) do
+					v.Parent = workspace.Map.Shopz
+				end
+			end
+		end
+		if ServerStorage.Values.RemoveDealers.Value then
+			UpdateDisabled()
+		end
+		ServerStorage.Values.RemoveDealers.Changed:Connect(UpdateDisabled)
+	end
+	
+	local function HandleBuyZones()
+		local buyZonesF = workspace.Filter:FindFirstChild("BuyZones")
+		
+		if buyZonesF then
+			local function Toggle(mainPart,m)
+				if mainPart and mainPart.Parent then
+					if not ReplicatedStorage.Values.BuyZonesEnabled.Value then
+						m = false
+					end
+					
+					for i,v in pairs(mainPart:GetDescendants()) do
+						if v:IsA("BasePart") then
+							v.Transparency = (m and 0.75) or 1
+						end
+					end
+				end
+			end
+			
+			for i,v in pairs(buyZonesF:GetChildren()) do
+				Toggle(v.MainPart,v.Enabled.Value and not v.Hidden.Value)
+				v.Enabled.Changed:Connect(function()
+					Toggle(v.MainPart,v.Enabled.Value and not v.Hidden.Value)
+				end)
+				v.Hidden.Changed:Connect(function()
+					Toggle(v.MainPart,v.Enabled.Value and not v.Hidden.Value)
+				end)
+			end
+			
+			ReplicatedStorage.Values.BuyZonesEnabled.Changed:Connect(function()
+				for i,v in pairs(buyZonesF:GetChildren()) do
+					Toggle(v.MainPart,v.Enabled.Value and not v.Hidden.Value)
+				end
+			end)
+		end
+	end
+	
+	local function HandleShopUpgrades()
+		for i,v in pairs(ReplicatedStorage.Storage.ItemStats:GetChildren()) do
+			for i2,z in pairs(v:GetChildren()) do
+				if z:FindFirstChild("CanUpgrade") and z.CanUpgrade.Value then
+					local foundTool = ServerStorage.Tools:FindFirstChild(z.CanUpgrade.UpgradedName.Value)
+					if foundTool then
+						foundTool:SetAttribute("IsWepUpgrade",z.Name)
+					end
+				end
+			end
+		end
+	end
+	
+	HandleATMsActive()
+	HandleDealersActive()	
+	HandleBuyZones()
+	HandleShopUpgrades()
+	
+	spawn(function()
+		require(script.DisplayWepModelsCreators)()
+	end)
+	
+	if ServerStorage.Values.CanUseArmoryItemsWithoutPass.Value then
+		for i,v in pairs(iS:GetDescendants()) do
+			if v.Name == "APassOnly" and v:IsA("BoolValue") then
+				v.Value = false
+			end
+		end
+	end
+	
+	print("S15")
+	
+	delay(10,function()
+		pcall(UpdateGamepassSaleMode)
+		pcall(UpdateProductItems)
+	end)
+	
+	print("S16")
+	spawn(function()
+		while wait(60) do
+			pcall(UpdateGamepassSaleMode)
+			pcall(UpdateProductItems)
+		end
+	end)
+end
+
+--local function StrictTable(Virtual_Table)
+--	local Protected = newproxy(true)
+--	local Mt = getmetatable(Protected)
+
+--	Mt.__index = Virtual_Table
+--	Mt.__namecall = Virtual_Table
+--	Mt.__newindex = function()
+--		error("Attempted to modify a protected table.")
+--	end
+
+--	Mt.__metatable = "This table is protected."
+
+--	return Protected
+--end
+
+return M
