@@ -1,0 +1,465 @@
+--34GKB8495GJNNJR44FV
+if not game.Loaded then game.Loaded:Wait() end
+
+local MAX_DIST = 40
+local MIN_DIST = 5
+local START_DMG = 1
+local DMG_MULTI = 1.2
+local MAX_DMG = 5
+local MAX_HOLD_DIST = 200;
+local MAX_GRAB_DIST = 100;
+
+local COLOR_1 = Color3.fromRGB(0, 170, 255)
+local COLOR_2 = Color3.fromRGB(179, 0, 3)
+
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local tool = script:WaitForChild("ToolValue").Value
+local remote = tool:WaitForChild("RemoteFunction")
+local plr = game.Players.LocalPlayer
+local cam = workspace.CurrentCamera
+local mouse = plr:GetMouse()
+
+local char = plr.Character or plr.CharacterAdded:Wait()
+local humanoid = char:WaitForChild("Humanoid")
+local root = char:WaitForChild("HumanoidRootPart")
+
+local ignoreList = {workspace.CurrentCamera}
+local params = RaycastParams.new()
+params.IgnoreWater = true
+params.FilterType = Enum.RaycastFilterType.Blacklist
+params.FilterDescendantsInstances = ignoreList
+
+local noForceZap = char:GetAttribute("NoForceZap")
+
+local chosenDist = 5
+local equipped = false
+local dead = false
+local fDown = false -- damage
+local vDown = false -- zap
+
+local position = Vector3.new()
+local Attachments = {}
+local Targets = {}
+local con
+local lastMousePos = Vector2.new(0,0)
+local lastDropCode = 0
+local lastDmgT = 0
+
+local lastVDown = 0
+local lastVUp = 0
+local isZapping = false
+local zapThingBusy = false
+
+local zapGyroV = _G.AffectChar and _G.AffectChar("ROTROOT",math.huge)
+if zapGyroV then
+	zapGyroV.Parent = nil
+end
+
+local vF = _G.GVF and _G.GVF()
+
+local zapAnim = humanoid:LoadAnimation(script:WaitForChild("ForceZapIdle"))
+
+local dmg = 0
+
+local function CreateMoveBP()
+	local bp = Instance.new("BodyPosition")
+	bp.MaxForce = Vector3.new(10e10,10e10,10e10)
+	bp.D = 1500
+	return bp
+end
+
+local chosenCF = CFrame.new()
+
+local function GetSubject()
+	local t = mouse.Target
+	if t and t.Parent:FindFirstChild("Humanoid") then
+		return t
+	end
+end
+
+local function MouseRaycast()
+	local mousePosition = UIS:GetMouseLocation()
+	local mouseray = cam:ViewportPointToRay(mousePosition.X,mousePosition.Y)
+	local raycastresult = workspace:Raycast(mouseray.Origin,mouseray.Direction * 300,params)
+	return raycastresult
+end
+
+local function UpdateMove(customPos,doTurn)
+	local dist = (workspace.CurrentCamera.CFrame.Position -root.Position).Magnitude*1.5
+	dist = math.min(dist,MAX_DIST)
+	dist = math.max(dist,MIN_DIST)
+	local MAX_DISTANCE = dist
+
+	local dist = 0
+
+	local firstTarg = nil
+
+	for i, v in pairs(Targets) do
+		local x,y,z = CFrame.new(v[2].PrimaryPart.CFrame.p, root.CFrame.p):ToEulerAnglesXYZ()
+
+		if Attachments[v[1]] and Attachments[v[1]].B and Attachments[v[1]].B.Parent then
+			local Evasive = Attachments[v[1]].S[2]
+			local position = Attachments[v[1]].S[1]
+
+			if Attachments[v[1]].S[2] == false then
+				Attachments[v[1]].S[1] = mouse.Hit.p
+			end
+			local newPos =root.Position
+			local distance = (position - newPos).Magnitude
+			if (distance > MAX_DISTANCE) then
+				position = newPos:lerp(position, (MAX_DISTANCE / distance))
+			end
+
+			if doTurn then
+				local nP = customPos or position
+				nP = Vector3.new(nP.X,math.max(nP.Y,newPos.Y + 2),nP.Z)
+
+				if dist > 0 and firstTarg then
+					nP += (firstTarg.CFrame.RightVector * (dist * 6))
+				end
+
+				Attachments[v[1]].B.Position = nP 
+			end
+
+			local turnCF = CFrame.new(root.CFrame.Position) * CFrame.Angles(x,y,z)
+			local lastTurnCF = Attachments[v[1]].S[3] or turnCF
+
+			Attachments[v[1]].AT.CFrame = turnCF:Lerp(lastTurnCF,0.001)
+			Attachments[v[1]].S[3] = lastTurnCF
+
+			if not firstTarg then
+				firstTarg = v[2].PrimaryPart
+			end
+
+			dist += 1
+		end
+	end
+end
+
+local function Grab()
+	local result = MouseRaycast()
+	local Subject
+	if result then
+		Subject = result.Instance:FindFirstAncestorOfClass("Model")
+	end
+	if result and (Subject and Subject:FindFirstChild("Humanoid") and Subject.Humanoid.Health > 0) and Subject.Name ~= plr.Name and (result.Instance.Position - root.Position).Magnitude <= MAX_GRAB_DIST then
+		local s = remote:InvokeServer("Grab",Subject)
+		if s and Attachments[s] == nil then
+			local Bro = script.AlignOrientation:Clone()
+			Bro.Parent = Subject.HumanoidRootPart
+			Bro.Attachment0 = Subject.HumanoidRootPart.RootAttachment
+			local ATT = Instance.new("Attachment", workspace.Terrain)
+			ATT.Name = Subject.Name
+			Bro.Attachment1 = ATT
+			mouse.TargetFilter = Subject
+			local movebp = CreateMoveBP()
+			
+			movebp.Position = Subject.HumanoidRootPart.Position + Vector3.new(0,2,0)
+			
+			movebp.Parent = Subject.HumanoidRootPart
+			
+			local hl = Instance.new("Highlight")
+			hl.Parent = Subject
+			hl.FillTransparency = 1
+			hl.OutlineTransparency = 0.35
+			hl.DepthMode = Enum.HighlightDepthMode.Occluded
+			hl.OutlineColor = COLOR_1
+			hl.Adornee = Subject
+			
+			
+			local con
+			con = Subject.Humanoid.Died:Connect(function()
+				--con:Disconnect()
+				--Attachments[s]  = nil
+				--Targets[Subject] = nil
+				hl.Enabled = false
+			end)
+			
+			local con2
+			con2 = Subject.Humanoid.AncestryChanged:Connect(function(_,parent)
+				if not parent then
+					con:Disconnect()
+					con2:Disconnect()
+					
+					Attachments[s] = nil
+					
+					for i,v in pairs(Targets) do
+						if v[2] == s then
+							Targets[i] = nil
+						end
+					end
+				end
+			end)
+
+			Attachments[s] = {
+				["A"] = Bro, 
+				["B"] = movebp,
+				["S"] = {Vector3.new(0,0,0), false}, 
+				["AT"] = ATT,
+				["H"] = Subject.HumanoidRootPart,
+				["HL"] = hl,
+				["CON"] = con,
+			}
+
+			return {s, Subject}
+		else
+			return {s, Subject}
+		end
+	end
+end
+
+local function Release(target)
+	local vel = {target.HumanoidRootPart,target.HumanoidRootPart.Velocity} 
+	
+	--print("RELEASE",target)
+	
+	local result = remote:InvokeServer("Release",target,vel)
+	if result then
+		zapAnim:Stop()
+		for i, v in pairs(Attachments) do
+			if i == target then
+				pcall(function()
+					v.CON:Disconnect()
+					v.AT:Destroy()
+					v.A:Destroy()
+					v.B:Destroy()
+					v.HL:Destroy()
+				end)
+			end
+			Attachments[target] = nil
+			break
+		end
+	end
+end
+
+local function ReleaseAll()
+	local a2 = {}
+
+	for i,v in pairs(Targets) do
+		if v[2] and v[2].Parent and v[2]:FindFirstChild("HumanoidRootPart") then
+			a2[i] = {v[2].HumanoidRootPart,v[2].HumanoidRootPart.Velocity} 
+		end
+	end
+
+	local result = remote:InvokeServer("ReleaseAll",a2)
+	if result then
+		for i, v in pairs(Attachments) do
+			pcall(function()
+				--v.CON:Disconnect()
+				v.AT:Destroy()
+				v.A:Destroy()
+				v.B:Destroy()
+				v.HL:Destroy()
+			end)
+		end
+		Attachments = {}
+		Targets = {}
+	end
+	
+	zapAnim:Stop()
+	if zapGyroV then
+		zapGyroV.Parent = nil
+	end
+	
+--	print("released all")
+end
+
+UIS.InputBegan:Connect(function(key,busy)
+	if busy then return end
+	if not equipped then return end
+
+	if key.UserInputType == Enum.UserInputType.MouseButton1 then
+		mDown = true
+	elseif key.KeyCode == Enum.KeyCode.Q then
+		local Yo = Grab()
+
+		if Yo ~= nil and Targets[Yo[2]] == nil then
+			Targets[Yo[2]] = {Yo[1], Yo[2]}
+			Yo[2].Humanoid.WalkSpeed = 1
+		elseif Yo ~= nil and Targets[Yo[2]] then
+			pcall(function()
+				Attachments[Targets[Yo[2]][1]].S[2] = not Attachments[Targets[Yo[2]][1]].S[2]
+
+				if Attachments[Targets[Yo[2]][1]].S[2] then
+					Attachments[Targets[Yo[2]][1]].HL.OutlineColor = COLOR_2
+				else
+					Attachments[Targets[Yo[2]][1]].HL.OutlineColor = COLOR_1
+				end
+			end)
+		end
+		
+		if Yo then
+			UpdateMove(Yo[2].HumanoidRootPart.Position,true)
+		end
+	elseif key.KeyCode == Enum.KeyCode.V and not fDown then
+		dmg = START_DMG
+		vDown = true
+		lastVDown = time()
+	elseif key.KeyCode == Enum.KeyCode.G then
+		ReleaseAll()
+	end
+end)
+
+UIS.InputEnded:Connect(function(key)
+	if not equipped then return end
+
+	if key.UserInputType == Enum.UserInputType.MouseButton1 then
+		mDown = false
+	elseif key.KeyCode == Enum.KeyCode.V then
+		vDown = false
+		lastVUp = time()
+		ReleaseAll()
+	elseif key.KeyCode == Enum.KeyCode.RightBracket then
+		remote:InvokeServer("CCZCOLR")
+	end
+end)
+
+tool.Equipped:Connect(function()
+	equipped = true
+	if con then
+		con:Disconnect()
+	end
+	
+	noForceZap = char:GetAttribute("NoForceZap")
+	
+	con = RunService.Heartbeat:Connect(function()
+		--if mDown then
+		
+		UpdateMove(nil,mDown or isZapping)
+		--end
+		
+		if not zapThingBusy and not noForceZap then
+			if isZapping and not vDown and time() - lastVDown > 0.5 then
+				isZapping = false
+				coroutine.wrap(function()
+					local t = {}
+					for i,v in pairs(Attachments) do
+						if not v.S[2] then
+							table.insert(t,v.H.Parent)
+						end
+					end
+					if #t > 0 then
+						zapThingBusy = true
+						local result = remote:InvokeServer("StopZap",t)
+						
+						if result then
+							zapAnim:Stop()
+							if zapGyroV then
+								zapGyroV.Parent = nil
+							end
+						end
+						
+						zapThingBusy = false
+					end
+				end)()
+			elseif not isZapping and vDown and time() - lastVUp >= 0.5 then
+				isZapping = true
+				coroutine.wrap(function()
+					local t = {}
+					for i,v in pairs(Attachments) do
+						if not v.S[2] then
+							table.insert(t,v.H.Parent)
+						end
+					end
+					if #t > 0 then
+						zapThingBusy = true
+						local result = remote:InvokeServer("StartZap",t)
+						
+						if result then
+							zapAnim:Play()
+							if zapGyroV then
+								zapGyroV.Parent = (vF and vF.Currents) or nil
+							end
+						end
+						
+						zapThingBusy = false
+					end
+				end)()
+			end
+		end
+		
+		
+		if fDown and tick() - lastDmgT > 0.2 then
+			lastDmgT = tick()
+			
+			local t = {}
+			
+			for i,v in pairs(Attachments) do
+				if not v.S[2] then
+					table.insert(t,v.H.Parent)
+				end
+			end
+			
+			if #t > 0 then
+				coroutine.wrap(function()
+					remote:InvokeServer("Damage",t,dmg)
+				end)()
+
+				dmg *= DMG_MULTI
+				dmg = math.min(dmg,MAX_DMG)
+			end
+		elseif vDown and tick() - lastDmgT > 0.2 then
+				lastDmgT = tick()
+
+				local t = {}
+
+				for i,v in pairs(Attachments) do
+					if not v.S[2] then
+						table.insert(t,v.H.Parent)
+					end
+				end
+
+				if #t > 0 then
+					coroutine.wrap(function()
+						remote:InvokeServer("Damage",t,dmg,true)
+					end)()
+
+					--dmg *= DMG_MULTI
+					--dmg = math.min(dmg,MAX_DMG)
+				end
+			end
+		
+		if root and root.parent then
+			for i,v in pairs(Attachments) do
+				if v.H and v.H.Parent then
+					if (v.H.Position - root.Position).Magnitude > MAX_HOLD_DIST then
+						Release(v.H.Parent)
+					end
+				end
+			end
+		end
+	
+	end)
+end)
+
+tool.Unequipped:Connect(function()
+	equipped = false
+	if con then
+		con:Disconnect()
+	end	
+	
+	if isZapping then
+		isZapping = false
+		zapAnim:Stop()
+		if zapGyroV then
+			zapGyroV.Parent = nil
+		end
+		
+		local t = {}
+		for i,v in pairs(Attachments) do
+			if not v.S[2] then
+				table.insert(t,v.H.Parent)
+			end
+		end
+		if #t > 0 then
+			local result = remote:InvokeServer("StopZap",t)
+		end
+	end
+end)
+
+humanoid.Died:Connect(function()
+	dead = true
+	ReleaseAll()
+end)
