@@ -1,0 +1,5969 @@
+local CLHSECKEY =                                                                                                                                                                                                                                                                                                                                                                                                                                    "ZKLFXG890ZDFGJKN43SU8IOG";
+
+local PlayerManager = {}
+
+local SoundService =		game:GetService("SoundService")
+local PhysicsService =		game:GetService("PhysicsService")
+local ReplicatedStorage =	game:GetService("ReplicatedStorage")
+local RunService = 			game:GetService("RunService")
+local ServerStorage = 		game:GetService("ServerStorage")
+local Players = 			game:GetService("Players")
+local StarterPack = 		game:GetService("StarterPack")
+local ServerScriptService = game:GetService("ServerScriptService")
+local MarketplaceService = 	game:GetService("MarketplaceService")
+local DataStoreService = 	game:GetService("DataStoreService")
+local TeleportService = 	game:GetService("TeleportService")
+local HTTPService =			game:GetService("HttpService")
+local PolicyService = 		game:GetService("PolicyService")
+
+local purchaseHistoryStore = DataStoreService:GetDataStore("PurchaseHistory")
+local purchaseHistoryStore2 = DataStoreService:GetDataStore("PurchasedMoneyStore")
+
+local killEvent =			ReplicatedStorage.Events.KillEvent
+local charStatsFolder = 	ReplicatedStorage.CharStats
+local toolsStorage =		ServerStorage.Tools
+
+local CharacterHandler = require(ServerScriptService.CharacterHandler)
+local RandomAvatarM = require(ServerScriptService.RandomAvatar)
+
+local hrps = {}
+local handcuffs = {}
+local managing = {}
+local cons = {}
+
+local PlayerbaseData = ServerStorage:WaitForChild("PlayerbaseData")
+local PlayerbaseData2 = ReplicatedStorage:WaitForChild("PlayerbaseData2")
+local modules = ReplicatedStorage:WaitForChild("Modules")
+
+local Events = ReplicatedStorage.Events
+local Events2 = ReplicatedStorage.Events2
+local Events3 = ServerStorage.Events3
+
+local RR3 = require(modules.RotatedRegion3)
+local BarCodeCheckM = require(script:WaitForChild("CheckForBarcodeName"))
+
+local DS_Settings = {}
+local GameSettings = {}
+	--= _G.GameSettings
+
+local gamepassesModule = require(modules.Gamepasses)
+local productsModule = require(modules.Products)
+local giftProductsModule = require(modules.GiftProducts)
+local GetLevelM = require(script.GetLevel)
+local GetKillXPM = require(script.GetKillXP)
+local GetLevelRewardM = require(script.GetLevelReward)
+local defaultPlayerData = require(script.DefaultPlayerData)
+local defaultLevelData = require(script.DefaultLevelData)
+local defaultMoneyData = require(script.DefaultMoneyData)
+local defaultClientSettings = require(modules.DefaultClientSettings)
+local addComas = require(modules.AddComas)
+
+local GetStartPlaceIdM = require(script.Parent.GetStartPlaceIdModule)
+local PrimeCheckM = require(script.PrimeCheck)
+
+local AwardBadge = require(ServerStorage.Modules.Other.AwardBadge)
+--local TwitterCodesM = require(ServerStorage.Modules.Other.TwitterCodes)
+local SessionLocker = require(ServerScriptService.SessionLocker)
+local TwitterCodesHandler = require(script.Parent.TwitterCodeHandler)
+local CreateViewportCharacterM = require(ServerStorage.Modules.Other.CreateViewportCharacter)
+
+local packageMs = {
+	HeadIDs = require(ServerStorage.Modules.Other.HeadIDs);
+	PackageIDs = require(ServerStorage.Modules.Other.PackageIDs);
+}
+
+local logRemote = Events3:WaitForChild("OLGR")
+local ModCosmeticInteracSC =																																																																						"OIJPG43R98UHUIJREJOKRFG98U0FWEROPIJKSDF0I908U09U23RKOJZD90432OIJ0FSD";
+
+local serverKillFeed = {}
+
+local IS_STUDIO = RunService:IsStudio()
+
+local DataStore2
+local DataBase = {}
+local ShopAtmHandler = nil
+local bountyPlrs = {}
+local cashDropCDs = {}
+
+local ModerationM = require(ServerScriptService.M)
+local BanSystemM = require(ServerScriptService.M.BS)
+local compLeaderboardM = require(ServerScriptService.Game.CompetitiveLeaderboard)
+local SkinsHandlerM = require(script.Parent.SkinsHandler)
+local DailyLoginRewardM = require(ReplicatedStorage.Modules.DailyLoginReward)
+
+local canRespawn = true
+
+local deepCopy = require(modules.DeepCopy)
+
+local function RCU_active()
+	local RCU = ReplicatedStorage:FindFirstChild("RCU")
+	return RCU and RCU.Active.Value
+end
+
+local function Lerp(a, b, c)
+	return a + ((b - a) * c)
+end
+
+local function isRealNumber(num)
+	return (typeof(num) == "number") and (num == num) and (math.abs(num) ~= math.huge)
+end
+
+local function isDSaving()
+	if DS_Settings.NoStudioData and IS_STUDIO then
+		return false
+	else
+		return ReplicatedStorage.Values.DataSaving.Value
+	end
+end
+
+local function AddToKillFeed(victimName,victim,killer,killerName,tool,distance)
+	local t = {}
+
+	t[1] = killerName
+	t[2] = killer.Name .. ":" .. killer.UserId
+	t[3] = victimName
+	t[4] = victim.Name .. ":" .. victim.UserId
+	if tool then
+		t[5] = tostring(tool)
+	else
+		t[5] = "N/A"
+	end
+	if distance then
+		t[6] = tostring(distance) .. " studs"
+	else
+		t[6] = "N/A"
+	end
+	t[7] = tick()
+	
+	table.insert(serverKillFeed,t)
+	
+	delay(7200,function()
+		local found = table.find(serverKillFeed,t)
+		if found then
+			table.remove(serverKillFeed,found)
+		end
+	end)
+end
+
+
+local function GenerateRandomName()
+	local n = HTTPService:GenerateGUID()
+	return string.sub(n,2,5)
+end
+
+local function GetSafeRespawnLocation(plr)
+	local oL = workspace.Filter.Spawns:GetChildren()
+	local spawnL = {}
+	
+	local MinRespawnDist = GameSettings.MinRespawnDist
+	local MinRespawnToPlayerDist = GameSettings.MinRespawnToPlayerDist
+	
+	local spawnCloseToOthers = ServerStorage.Values.SpawnCloseToOthers.Value
+	
+	if spawnCloseToOthers then
+		MinRespawnDist = 2;
+		MinRespawnToPlayerDist = 1;
+	end
+	
+	for _,v in pairs(oL) do
+		if v.Enabled and v.TeamColor == plr.TeamColor then	
+			table.insert(spawnL,v)
+		end
+	end
+
+	if #spawnL <= 0 then
+		for _,v in pairs(oL) do
+			if v.Enabled and v.Neutral and not table.find(spawnL,v) then
+				table.insert(spawnL,v)
+			end
+		end
+	end
+
+	local function shuffleArray(arr)
+		local arrCopy = {unpack(arr)} -- # making copy of arr
+
+		for i = 1, #arr do
+			arr[i] = table.remove(arrCopy, math.random(#arrCopy))
+		end
+		return arr -- # arr has been shuffled, return back for convenience
+	end
+
+	spawnL = shuffleArray(spawnL)
+
+	local gotSpawn = nil
+	local dist = 0
+	local plrHrp = hrps[plr.Name]
+	
+	if plrHrp and plrHrp.Position then
+		local noTBs = {}
+		local enemyTBs = {}
+		
+		--print("scto",1)
+		
+		for _,v in pairs(Players:GetPlayers()) do
+			if v ~= plr 
+				and v.Character 
+				and v.Character:FindFirstChild("HumanoidRootPart") 
+				and v.Character:FindFirstChild("Humanoid") 
+				and v.Character.Humanoid.Health > 0 
+			then
+				if spawnCloseToOthers and v.TeamColor ~= plr.TeamColor then
+					table.insert(enemyTBs,v.Character.HumanoidRootPart.Position)
+				elseif not (spawnCloseToOthers and _G.InCombatCheck(plr,true)) then
+					table.insert(noTBs,v.Character.HumanoidRootPart.Position)
+				end
+			end
+		end
+		
+		local nC = 0
+		
+		local function c2(v)
+			for _,z in pairs(noTBs) do
+				if nC >= 30 then
+					return true
+				end
+
+				if spawnCloseToOthers then
+					if (v.Position - z).Magnitude > MinRespawnToPlayerDist then
+						nC = nC + 1
+					else
+						return true
+					end
+				else
+					if (v.Position - z).Magnitude > MinRespawnToPlayerDist then
+						return true
+					else
+						nC = nC + 1
+					end
+				end
+			end
+		end
+		
+		--print("scto",2)
+		
+		if spawnCloseToOthers then
+			local gotTB
+			noTBs = #noTBs >0 and shuffleArray(noTBs)
+			
+			local minEnemySpawnDist = 150
+			
+			--print("scto",3,noTBs)
+			
+			
+			if noTBs then
+				
+				--print("scto",3)
+				
+				for i,v in pairs(noTBs) do
+					local mag = (v - plrHrp.Position).Magnitude
+					if mag > MinRespawnDist then
+						gotTB = v
+						break
+					end
+				end
+				
+				dist = math.huge
+				
+				local function CheckThing(x)
+					for i,v in pairs(enemyTBs) do
+						if (v - x).Magnitude < minEnemySpawnDist then
+							return false
+						end
+					end
+					return true
+				end
+				
+				if gotTB then
+					--print("scto",4)
+					for _,v in pairs(spawnL) do
+						local mag = (v.Position - gotTB).Magnitude
+
+						if mag < dist or mag < 75 then
+							--print("scto",5)
+							if CheckThing(v.Position) then
+								--print("scto",6,v:GetFullName())
+								dist = mag
+								gotSpawn = v
+							end
+						end
+					end
+				end
+			
+			end
+		else
+			for _,v in pairs(spawnL) do
+				local mag = (v.Position - plrHrp.Position).Magnitude
+
+				if mag > MinRespawnDist and c2(v) then
+					dist = mag
+					gotSpawn = v
+					break
+				end
+			end
+		end
+		
+	end
+	local bruh = gotSpawn or spawnL[math.random(1,#spawnL)]
+
+	return bruh
+end
+
+local function LoadCharacter(player,customUserID,respawnLoc,first,isCmd)
+	local function DoTing()
+		local desc = Players:GetHumanoidDescriptionFromUserId(customUserID or player.CharacterAppearanceId)
+		
+		if not ServerStorage.Values.AllowAllAccessories.Value then
+			local ps = GameSettings.PackageSettings
+
+			if ps.Package == "None" or not ps.Package then
+				desc.LeftArm = 0
+				desc.LeftLeg = 0
+				desc.RightArm = 0
+				desc.RightLeg = 0
+				desc.Torso = 0
+			elseif ps.Package == "Whitelist" then
+				local n = {"LeftArm";"LeftLeg";"RightArm";"RightLeg";"Torso"}
+
+				for _,v in pairs(n) do
+					if desc[v] > 0 then
+						local got = false
+						for _,z in pairs(packageMs.PackageIDs) do
+							if z == desc[v] then
+								got = true
+								break
+							end
+						end
+
+						if not got then
+							--warn("not got1: " .. desc[v])
+							desc[v] = 0
+						end
+					end
+				end
+			end
+
+			if ps.Head == "None" or not ps.Head then
+				desc.Head = 0
+			elseif ps.Head == "Whitelist" then
+				if desc.Head > 0 then
+					local got = false
+					for _,v in pairs(packageMs.HeadIDs) do
+						if v == desc.Head then
+							got = true
+							break
+						end
+					end
+
+					if not got then
+						--warn("not got2: " .. desc.Head)
+						desc.Head = 0
+					end
+				end
+			end
+
+			if ps.NoBlackBodyColor then
+				local n = {"HeadColor";"LeftArmColor";"LeftLegColor";"RightArmColor";"RightLegColor";"TorsoColor"}
+				for _,v in pairs(n) do
+					if desc[v] == BrickColor.new("Really black").Color or desc[v] == BrickColor.new("Black").Color then
+						--warn("HEADOCLOR3: " .. v)
+						desc[v] = BrickColor.new("Dark stone grey").Color
+					end
+				end
+			end
+
+			desc.BackAccessory = ""
+			desc.FrontAccessory = ""
+			--desc.NeckAccessory = ""
+			--desc.ShouldersAccessory = ""
+			desc.WaistAccessory = ""
+		end
+
+		desc:Destroy()
+
+		return desc
+	end
+	
+	if player and player.Parent then
+		local db = DataBase[player]
+		
+		if not respawnLoc and isCmd then
+			respawnLoc = GetSafeRespawnLocation(player)
+		end
+		
+		if db and (db:PrimeCheck() and db:RandomAvatarEnabled(first)) or player:GetAttribute("ForceRandomAvatar") or ServerStorage.Values.ForceRandomAvatar.Value then
+			player.CanLoadCharacterAppearance = false
+			player.RespawnLocation = respawnLoc
+			player:LoadCharacter()
+		else
+			player.CanLoadCharacterAppearance = true
+			local success, desc = pcall(DoTing)
+			
+			if player and player.Parent then
+				if success and desc then
+					player.RespawnLocation = respawnLoc
+					player:LoadCharacterWithHumanoidDescription(desc)
+				else
+					player.RespawnLocation = respawnLoc
+					warn("Failed to get humanoiddescription for: " .. tostring(player.UserId))
+					player:LoadCharacter()
+				end
+			end
+		end
+	end
+end
+
+
+local function GamepassPurchaseFinished(player,id,wP)
+	if not wP then return end
+
+	local gamepassName = gamepassesModule[id] and gamepassesModule[id][1]
+	local pd = PlayerbaseData:FindFirstChild(player.Name)
+	if not gamepassName or not pd or pd.Gamepasses:FindFirstChild(gamepassName) then return end
+	
+	local b = Instance.new("BoolValue")
+	b.Name = gamepassName
+	b.Parent = pd.Gamepasses
+
+	for i,v in pairs(gamepassesModule) do
+		if v[1] == "Radio" and id == i then
+			if player.Character and not (player.Character:FindFirstChild("Radio") or player.Backpack:FindFirstChild("Radio")) then
+				ServerStorage.Tools.Radio:Clone().Parent = player.Backpack
+			end
+			break
+		elseif v[1] == "Prime" and id == i then
+			pd.Prime.Value = true
+			if DataBase[player] then
+				DataBase[player]:UpdatePrime()
+				DataBase[player]:UpdateStats(true,false,"prime")
+			end
+			break
+		end
+	end	
+		
+	if DataBase[player] and (gamepassName == "CosmeticSlots1" or gamepassName == "CosmeticSlots2") then
+		DataBase[player]:Replicate("cosmetics_invlimit",false)	
+	end	
+		
+	if DataBase[player] then
+		DataBase[player]:GetGamepasses(true)
+	end
+
+	local pd2 = PlayerbaseData2:FindFirstChild(player)
+	if pd2 and not pd2.Loaded.Value then
+		pd.Loaded:GetPropertyChangedSignal("Value"):Wait()	
+	end
+	
+	pcall(function()
+		local name2 = (gamepassesModule[id] and gamepassesModule[id][3]) or gamepassName
+		local tab = {
+			Title = "Purchase Complete";
+			Text = "Purchased " .. name2;
+			Duration = 15;
+			Button1 = "Close";
+		}
+
+		Events.Notification:FireClient(player,tab,"purchase")	
+	end)
+
+	Events.PurchaseFinished:FireClient(player,id,gamepassName,true)
+end
+
+local function PurchaseFinishedFire(player,id,name)
+	coroutine.resume(coroutine.create(function()
+		local pd2 = PlayerbaseData2:FindFirstChild(player.Name)
+		local pd = PlayerbaseData and PlayerbaseData.Parent and PlayerbaseData:FindFirstChild(player.Name)
+
+		if pd and pd2 and not pd2.Loaded.Value then
+			pd.Loaded:GetPropertyChangedSignal("Value"):Wait()	
+		end
+		Events.PurchaseFinished:FireClient(player,id,name)
+	end))
+end
+
+function PromptProductPurchaseFinishedFunc(userId,productId,isPurchased)
+	if isPurchased then
+		return
+	end
+	
+	local plrName
+	if userId == -1 then
+		plrName = "Player1"
+	else 
+		plrName = Players:GetNameFromUserIdAsync(userId)
+	end
+	
+	local plr = Players:FindFirstChild(plrName)
+	
+	if plr then
+		local db = DataBase[plr]
+		if db then
+			db:ClearActiveGiftData()
+		end
+	end
+end
+
+function ProcessReceiptFunc(receiptInfo)
+	local FULL_SUCCESS = false
+	local function DoIt()
+		--print(111)
+		-- Determine if the product was already granted by checking the data store  
+		local playerProductKey = receiptInfo.PlayerId .. "_" .. receiptInfo.PurchaseId
+		local purchased = false
+		local success, errorMessage = pcall(function()
+			purchased = purchaseHistoryStore:GetAsync(playerProductKey)
+		end)
+		-- If purchase was recorded, the product was already granted
+		if success and purchased then
+			FULL_SUCCESS = true
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		elseif not success then
+			error("Data store error:" .. errorMessage)
+		end
+
+		--print(222)
+
+		local player
+
+		if receiptInfo.PlayerId == -1 then
+			player = Players:FindFirstChild("Player1")
+		elseif receiptInfo.PlayerId == -2 then
+			player = Players:FindFirstChild("Player2")
+		else
+			player = Players:FindFirstChild(Players:GetNameFromUserIdAsync(receiptInfo.PlayerId))
+		end
+		
+		--print(333)	
+
+		if not player then
+			-- The player probably left the game
+			-- If they come back, the callback will be called again
+			return Enum.ProductPurchaseDecision.NotProcessedYet
+		end
+
+		local pd = PlayerbaseData and PlayerbaseData.Parent and PlayerbaseData:FindFirstChild(player.Name)
+		local pd2 = PlayerbaseData2 and PlayerbaseData2.Parent and PlayerbaseData2:FindFirstChild(player.Name)
+		local db = DataBase[player]
+
+		if not (pd and db) then
+			return Enum.ProductPurchaseDecision.NotProcessedYet
+		end
+		
+		--print(444)
+
+		local id = receiptInfo.ProductId
+
+		local productName = (productsModule[id] and productsModule[id][1])
+		local giftProductTab = giftProductsModule[id]
+		local activeGiftData,targDB,targPD
+		
+		local isCosmeticCaseProduct,isCosmeticCaseProduct_GIFT,isCosmeticCaseProduct_BULK = false,false,false
+		
+		for i,v in pairs(giftProductsModule) do
+			if v[1] == id then
+				productName = i
+				giftProductTab = v
+				break
+			end
+		end
+		
+		if productName or not giftProductTab then
+			local checkIfSkinCaseId,caseData,isGift,isBulk = SkinsHandlerM.CheckIfValidCaseFromProductId(id)
+			if checkIfSkinCaseId then
+				isCosmeticCaseProduct = caseData
+				productName = checkIfSkinCaseId
+				
+				if isGift then
+					isCosmeticCaseProduct_GIFT = isGift
+					giftProductTab = {isGift,false}
+				elseif isBulk then
+					isCosmeticCaseProduct_BULK = isBulk
+				end
+				
+			end
+		end
+		
+		--print(productName,isCosmeticCaseProduct,isCosmeticCaseProduct_GIFT,isCosmeticCaseProduct_BULK)
+		
+		--print(id,productName ,isCosmeticCaseProduct_GIFT,isCosmeticCaseProduct)
+
+		if not productName and not giftProductTab then 
+			db:ClearActiveGiftData()
+			return Enum.ProductPurchaseDecision.NotProcessedYet 
+		end
+		
+		--print(555)
+
+		local x,x2 = false,"N/A"
+		local doInstantSave = false
+		if receiptInfo.CurrencySpent then
+			if receiptInfo.CurrencySpent >= 2000 then
+				doInstantSave = true
+			--elseif receiptInfo.CurrencySpent >= 500 and #Players:GetPlayers() <= 10 then
+			--	doInstantSave = true
+			end
+		end
+		
+		if isCosmeticCaseProduct then
+			x2 = ((isCosmeticCaseProduct_BULK and "x10") or "x1") .. " " .. isCosmeticCaseProduct.DisplayName or "N/A"
+		end
+
+		if giftProductTab then
+			--print(555.1)
+			activeGiftData = db:GetActiveGiftData()
+			if activeGiftData and activeGiftData.productId == id and activeGiftData.targetPlr and activeGiftData.targetPlr.Parent then
+				--print(555.2)
+				if productName then
+					--print(555.3)
+					targDB = DataBase[activeGiftData.targetPlr]
+					targPD = PlayerbaseData and PlayerbaseData.Parent and PlayerbaseData:FindFirstChild(activeGiftData.targetPlr.Name)
+					
+					--print(555.4)
+					
+					if not (targPD and targDB) then
+						db:ClearActiveGiftData()
+						return Enum.ProductPurchaseDecision.NotProcessedYet
+					end
+					
+					--print(555.5)
+
+					if not giftProductTab[2] then -- not a gp
+						if isCosmeticCaseProduct_GIFT then -- is a crate gift
+							local result = SkinsHandlerM.GetNewPlayerSkinCaseData(activeGiftData.targetPlr,productName,true)
+							if result then
+								local gpd = {
+									gifterUserId = receiptInfo.PlayerId;
+									gifterPurchaseId = receiptInfo.PurchaseId;
+									playerProductKey = playerProductKey;
+								};
+								local result2 = targDB:GrantCase(result,1,"giftpurchase",gpd)
+
+								if result2 then
+									x = true
+								end
+							end
+						else -- is a product (cash)
+							local n = nil
+							
+							if productName == "CashTier1" then
+								n = 10000
+								targDB:AddMoney("Bank",n,false)
+								x = true
+								x2 = "$10,000"
+							elseif productName == "CashTier2" then
+								n = 25000
+								targDB:AddMoney("Bank",n,false)
+								x = true
+								x2 = "$25,000"
+							elseif productName == "CashTier3" then
+								n = 50000
+								targDB:AddMoney("Bank",n,false)
+								x = true
+								x2 = "$50,000"
+								doInstantSave = true
+							elseif productName == "CashTier4" then
+								n = 100000
+								targDB:AddMoney("Bank",n,false)
+								x = true
+								x2 = "$100,000"
+								doInstantSave = true
+							elseif productName == "CashTier5" then
+								n = 250000
+								targDB:AddMoney("Bank",n,false)
+								x = true
+								x2 = "$250,000"
+								doInstantSave = true
+							elseif productName == "CashTier6" then
+								n = 500000
+								targDB:AddMoney("Bank",n,false)
+								x = true
+								x2 = "$500,000"
+								doInstantSave = true
+							elseif productName == "DoubleXP" and pd2 and not pd2.DoubleXP.Value then
+								targDB:DoubleXP(true,3600)
+								x = true
+								x2 = "1 HR double XP"
+							end
+
+							if n and typeof(n) == "number" then
+								db:AddPurchasedMoney(n)
+							end
+						end
+						
+						
+					else
+						--print(555.6)
+						local foundTabThing = nil
+
+						for i,v in pairs(gamepassesModule) do
+							if v[1] == productName then
+								foundTabThing = v
+								break
+							end
+						end
+
+						if not foundTabThing then
+							db:ClearActiveGiftData()
+							return Enum.ProductPurchaseDecision.NotProcessedYet
+						end
+						
+						doInstantSave = receiptInfo.CurrencySpent and receiptInfo.CurrencySpent >= 500
+
+						--if productName == "Weaponry" then
+							targDB:AddGiftedPass(productName,receiptInfo.PlayerId)
+							x = true
+							x2 = foundTabThing[3] or productName
+						--end
+					end
+				else
+					db:ClearActiveGiftData()
+					return Enum.ProductPurchaseDecision.NotProcessedYet
+				end
+			else
+				db:ClearActiveGiftData()
+				return Enum.ProductPurchaseDecision.NotProcessedYet
+			end
+		else
+			if isCosmeticCaseProduct then
+				local result = SkinsHandlerM.GetNewPlayerSkinCaseData(player,productName,true)
+				if result then
+					local count = 1
+					if isCosmeticCaseProduct_BULK then
+						count = 10
+					end
+					local result2 = db:GrantCase(result,count,"purchase")
+					
+					if result2 then
+						x = true
+					end
+				end
+			else
+				if productName == "CashTier1" then
+					db:AddMoney("Bank",10000,true)
+					x = true
+					x2 = "$10,000"
+				elseif productName == "CashTier2" then
+					db:AddMoney("Bank",25000,true)
+					x = true
+					x2 = "$25,000"
+				elseif productName == "CashTier3" then
+					db:AddMoney("Bank",50000,true)
+					x = true
+					x2 = "$50,000"
+					doInstantSave = true
+				elseif productName == "CashTier4" then
+					db:AddMoney("Bank",100000,true)
+					x = true
+					x2 = "$100,000"
+					doInstantSave = true
+				elseif productName == "CashTier5" then
+					db:AddMoney("Bank",250000,true)
+					x = true
+					x2 = "$250,000"
+					doInstantSave = true
+				elseif productName == "CashTier6" then
+					db:AddMoney("Bank",500000,true)
+					x = true
+					x2 = "$500,000"
+					doInstantSave = true
+				elseif productName == "DoubleXP" and pd2 and not pd2.DoubleXP.Value then
+					db:DoubleXP(true,3600)
+					x = true
+					x2 = "1 HR double XP"
+				end
+			end
+		end
+		
+		--print(666)
+
+		if not x then
+			db:ClearActiveGiftData()
+			return Enum.ProductPurchaseDecision.NotProcessedYet
+		else
+			if giftProductTab and activeGiftData then
+				local _s,_e = pcall(function()
+					spawn(function()
+						logRemote:Invoke(CLHSECKEY,
+							"BuyLog",
+							player.Name,"Gift-Purchased: " .. productName .. " | " .. tostring(id),
+							playerProductKey,receiptInfo.CurrencySpent,
+							activeGiftData.targetPlr.Name,
+							giftProductTab[2]
+						)
+					end)
+				end)
+				if not _s then
+					warn("gift purchase log error:",_e)
+				end
+				
+				targDB.DoFasterAutoSave = true
+				
+				if doInstantSave then
+					targDB:DoSave(true,true,false)
+				end
+				
+				if giftProductTab[2] then
+					targDB:UpdateGamepasses(true,true)
+					targDB:GetGamepasses(true)
+				end
+
+				pcall(function()
+					PurchaseFinishedFire(player,id,productName)
+
+					local tab = {
+						Title = "Gift Purchase Complete";
+						Text = "Gifted " .. x2 .. " to " .. "@" .. activeGiftData.targetPlr.Name;
+						Duration = 60;
+						Button1 = "Close";
+					}
+					Events.Notification:FireClient(player,tab,"purchase")
+
+					local tab2 = {
+						Title = "Gift Received";
+						Text = "You were gifted '" .. x2 .. "' from @" .. player.Name .. "!";
+						Duration = 2000;
+						Button1 = "Close";
+					}
+					Events.Notification:FireClient(activeGiftData.targetPlr,tab2,"purchase")	
+				end)
+			else
+				pcall(function()
+					spawn(function()
+						logRemote:Invoke(CLHSECKEY,"BuyLog",player.Name,"Purchased: " .. productName .. " | " .. tostring(id),playerProductKey,receiptInfo.CurrencySpent)
+					end)
+				end)
+				
+				db.DoFasterAutoSave = true
+				if doInstantSave then
+					db:DoSave(true,true,false)
+				end
+
+				pcall(function()
+					PurchaseFinishedFire(player,id,productName)
+
+					local tab = {
+						Title = "Purchase Complete";
+						Text = "Purchased " .. x2;
+						Duration = 15;
+						Button1 = "Close";
+					}
+
+					Events.Notification:FireClient(player,tab,"purchase")	
+				end)
+			end
+			db:ClearActiveGiftData()
+		end
+
+		-- Record transaction in data store so it isn't granted again
+
+		if not IS_STUDIO then
+			local success, errorMessage = pcall(function()
+				purchaseHistoryStore:SetAsync(playerProductKey, true)
+			end)
+			if not success then
+				warn("Cannot save purchase data: " .. errorMessage)
+			end
+		end
+		
+		FULL_SUCCESS = true
+
+		-- IMPORTANT: Tell Roblox that the game successfully handled the purchase
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+	
+	local _s,_e = pcall(DoIt)
+	
+	if not FULL_SUCCESS and (not _s or _e ~= Enum.ProductPurchaseDecision.PurchaseGranted) then
+		warn("ReceiptHandlerError: ",_e)
+		
+		local playerName
+		if receiptInfo.PlayerId == -1 then
+			playerName = "Player1"
+		elseif receiptInfo.PlayerId == -2 then
+			playerName = "Player2"
+		else
+			playerName = Players:GetNameFromUserIdAsync(receiptInfo.PlayerId)
+		end
+		
+		local _s,_e = pcall(function()
+			local productId = receiptInfo.ProductId
+			local g = nil
+			
+			for i,v in pairs(productsModule) do
+				if i == productId then
+					g = v[1]
+					break
+				end
+			end
+			if not g then
+				for i,v in pairs(gamepassesModule) do
+					if i == productId then
+						g = v[1]
+					end
+				end
+			end
+			if not g then
+				for i,v in pairs(giftProductsModule) do
+					if v[1] == productId then
+						g = i
+					end
+				end
+			end
+			
+			if g then
+				productId = productId .. " [" .. g .. "]"
+			end
+			
+			spawn(function()
+				logRemote:Invoke(CLHSECKEY,"BuyLogFail",playerName,"ProductId: " .. productId,receiptInfo.ProductId)
+			end)
+			
+			local plr = Players:FindFirstChild(playerName)
+			if plr then
+				local tab = {
+					Title = "Purchase Error";
+					Text = "Error occured - contact us @ Comms Server if product not received.";
+					Duration = 2000;
+					Button1 = "Close";
+				}
+				ReplicatedStorage.Events.Notification:FireClient(plr,tab,"error")
+			end
+		end)
+		if not _s then
+			warn(_e)
+		end
+		
+		--local player = Players:FindFirstChild(playerName)
+	elseif _s and _e == Enum.ProductPurchaseDecision.PurchaseGranted then
+		local _s2,_e2 = pcall(function()
+			local player
+			
+			if receiptInfo.PlayerId == -1 then
+				player = Players:FindFirstChild("Player1")
+			elseif receiptInfo.PlayerId == -2 then
+				player = Players:FindFirstChild("Player2")
+			else
+				player = Players:FindFirstChild(Players:GetNameFromUserIdAsync(receiptInfo.PlayerId))
+			end
+			assert(player,"Error 578 ReceiptInfo no Player found",receiptInfo.PlayerId)
+			
+			local db = DataBase[player]
+			
+			db:AddRobuxSpent(receiptInfo.CurrencySpent)
+			
+			return true
+		end)
+		
+		if not _s then
+			warn(_e)
+		end
+	end
+	
+	return _e
+end
+
+local function SettingsUpdated(Player,tab,wasServer)
+	local db = DataBase[Player]
+
+	if not wasServer and not db then return end
+
+	if typeof(tab) ~= "table" then
+		return
+	end
+
+	local newSettings = deepCopy(defaultClientSettings)
+
+	for i,v in pairs(newSettings) do
+		--print(newSettings[i],tab[i])
+		local v = tab[i]
+
+		if v ~= nil and (v == true or v == false) then
+			newSettings[i] = v
+		end
+	end
+	
+	if db and wasServer ~= "8WERTJKSD90WEF9" then
+		db:Update("ClientSettings",newSettings)
+	end
+	
+	return newSettings
+end
+
+local function GetSettings(Player)
+	local pd = PlayerbaseData:WaitForChild(Player.Name,100)
+
+	if not pd.DataLoaded.Value then
+		pd.DataLoaded.Changed:Wait()
+	end
+
+	local db = DataBase[Player]
+	if not db then return end
+
+	return (db.playerData and db.playerData.ClientSettings) or defaultClientSettings
+end
+
+local function GetGamepasses(Player)
+	local db = DataBase[Player]
+	if not db then return end
+
+	db:GetGamepasses()	
+end
+
+local function isRCUCheck(character,plr)
+	plr = plr or game.Players:GetPlayerFromCharacter(character)
+	return plr:GetAttribute("IsRCU") or (character and character.Parent and (character:FindFirstChild("IsRCU") or character:FindFirstChild("dHideName")))
+end
+
+--local function UpdateGamepasses(Player,doGive,ignoreDB,alwaysGive)
+--	local db = DataBase[Player]
+--	if not db then return end
+
+--	db:UpdateGamepasses(doGive,ignoreDB,alwaysGive)
+--end
+
+local function SANITY_CHECK(pd,plr,x)
+	if pd and (pd.Parent or x) and typeof(pd) == "Instance" and pd:FindFirstChild("Bank") and pd:FindFirstChild("Cash") and pd:FindFirstChild("Deaths") and pd:FindFirstChild("Kills") and pd:FindFirstChild("TimePlayed") and pd:FindFirstChild("Gamepasses") then
+		if typeof(pd.Bank.Value) == "number" and typeof(pd.Cash.Value == "number" and typeof(pd.Kills.Value) == "number" and typeof(pd.Deaths.Value) == "number" and typeof(pd.TimePlayed.Value) == "number" and typeof(pd.Gamepasses) == "Instance") then
+			return true
+		end
+	end
+
+	warn(string.format("ERROR: %s's PlayerDataTemplate is not right!",plr.Name))
+	return false
+end
+
+local function Round(to_round,n)
+	local divided = to_round / n
+	local rounded = n * math.floor(divided + 0.5)
+	return rounded
+end
+
+local function WeekendCheck()
+	local dateName = string.lower(os.date("%a"))
+	if dateName == "fri" or dateName == "sat" or dateName == "sun" then
+		return true
+	end
+	return false
+end
+
+local function GetOfflineData(UserId)
+	local function GetOF_Data(dataStoreName, UserId)
+		local key,val = nil,nil
+		
+		local success,response = pcall(function()
+			local orderedDataStore = DataStoreService:GetOrderedDataStore(dataStoreName .. "/" .. UserId)
+			local dataStore = DataStoreService:GetDataStore(dataStoreName .. "/" .. UserId)
+			
+			local pages = orderedDataStore:GetSortedAsync(false, 1)
+			local data = pages:GetCurrentPage()
+			if data[1] ~= nil then
+				key = data[1]["key"]
+				val = dataStore:GetAsync(data[1]["key"]) 
+			end
+		end)
+		
+		return key,val
+	end
+
+	--local function EditOF_Data(OrderedDataKey, dataStoreName, UserId, PlayerGameData, KeyToChange, NewValue)
+	--	local dataStore
+		
+	--	local success,response = pcall(function()
+	--		dataStore = DataStoreService:GetDataStore(dataStoreName .. "/" .. UserId)
+
+	--		PlayerGameData[KeyToChange] = NewValue
+
+	--		dataStore:SetAsync(OrderedDataKey, PlayerGameData)
+	--	end)
+	--end
+
+	local PlayerKey, PlayerGameData = GetOF_Data(DS_Settings.MasterKey, UserId)
+	
+	return PlayerGameData,DS_Settings
+end
+
+local function NewPlayer(player)
+	if managing[player] then return end
+	if ReplicatedStorage.Values.ShuttingDown.Value then return end
+
+	local joinTime = tick()
+	
+
+	if PlayerbaseData2:FindFirstChild(player.Name) then
+		PlayerbaseData2[player.Name]:Destroy()
+	end
+	if not DS_Settings.SaveInServer and PlayerbaseData:FindFirstChild(player.Name) then
+		PlayerbaseData[player.Name]:Destroy()
+	end
+	if charStatsFolder:FindFirstChild(player.Name) then
+		charStatsFolder[player.Name]:Destroy()
+	end
+
+	wait(1)
+	
+	if not (player and player.Parent) then
+		return
+	end
+
+	--warn("Loading:",player.Name)
+
+	local ModResult,nBanData = ModerationM.CheckPlayer(player)
+
+	if not ModResult then
+		warn("FailedA",player.Name)
+		return
+	end
+
+	if isDSaving() then
+		if not SessionLocker.PlayerAddedCheck(player) then
+			warn("FailedB",player.Name)
+			return
+		end
+	end
+
+	--ModerationM.MonitorPlayer(player)
+		
+	--warn("Validated:",player.Name)
+	
+	local joinData = player:GetJoinData()
+	local gotWarning = nil
+	if joinData and joinData.TeleportData and player.Parent then
+		local t = joinData.TeleportData
+
+		gotWarning = t[4]
+	end
+	
+	managing[player] = {
+		--Warning = (nBanData and nBanData.CurrentWarning and nBanData.CurrentWarning.Reason) or nil
+		Warning = gotWarning;
+	}
+	
+	local playerDataBase = {}
+	
+	playerDataBase.LastAutoSave = os.time()
+	playerDataBase.DoFasterAutoSave = false
+	
+	local playerStore = DataStore2("MainData" .. DS_Settings.MainDataKey, player,true,DS_Settings)
+	
+	local moneyStore =	DataStore2("MoneyData" .. DS_Settings.MoneyKey,player,nil,DS_Settings)
+	local levelStore =	DataStore2("LevelData" .. DS_Settings.LevelKey,player,nil,DS_Settings)
+
+	playerStore:SetBackup(3)
+	moneyStore:SetBackup(3)
+	levelStore:SetBackup(3)
+
+	local pd = ServerStorage.Storage.PlayerDataTemplate:Clone()
+	pd.Name = player.Name
+
+	if not SANITY_CHECK(pd,player,true) then
+		return
+	end
+
+	local startMoney = GameSettings.StartMoney or 0
+
+	startMoney = math.max(startMoney,0)
+	startMoney = math.min(startMoney,10000)
+
+	local playerData,moneyData,levelData
+	
+	if not isDSaving() and ServerStorage.Values.DontLoadNonDS.Value then
+		playerData = deepCopy(defaultPlayerData)
+		moneyData = deepCopy(defaultMoneyData(GameSettings))
+		levelData = deepCopy(defaultLevelData.GetData())
+	else
+		playerData = playerStore:GetTable(deepCopy(defaultPlayerData))
+		moneyData = moneyStore:GetTable(deepCopy(defaultMoneyData(GameSettings)))
+		levelData = levelStore:GetTable(deepCopy(defaultLevelData.GetData()))
+	end
+	
+	if not isDSaving()
+		--and ReplicatedStorage.Values.IsVipServer.Value
+	then
+		if ServerStorage.Values.ExtraVipCash.Value then
+			moneyData = deepCopy(defaultMoneyData(GameSettings))
+
+			moneyData.Bank = 100000000
+			moneyData.Cash = 10000
+			moneyData.Bounty = 0
+		elseif ServerStorage.Values.NoCash.Value then
+			moneyData = deepCopy(defaultMoneyData(GameSettings))
+
+			moneyData.Bank = 0
+			moneyData.Cash = 0
+			moneyData.Bounty = 0
+		end
+		moneyData.Bounty = 0
+	end
+	
+	local function SetPolicyService()
+		local success, result = pcall(function()
+			return PolicyService:GetPolicyInfoForPlayerAsync(player)
+		end)
+		
+		if success then
+			playerDataBase.ArePaidRandomItemsRestricted = result.ArePaidRandomItemsRestricted 
+			playerDataBase.IsPaidItemTradingAllowed = result.IsPaidItemTradingAllowed
+		end
+		
+	end
+	SetPolicyService()
+
+	
+	
+	local function UpdateSkinData()
+		for skinClass,tab in pairs(playerData.EquippedCosmetics) do
+			for itemName,id in pairs(tab) do
+				if not playerData.Cosmetics[skinClass][id] then
+					print(player.Name,"doesn't have skin",id,"anymore!")
+					playerData.EquippedCosmetics[skinClass][itemName] = nil
+				end
+			end
+		end
+	end
+	
+	local function StartChecker()
+		if not playerData.RedeemedCodes then
+			playerData.RedeemedCodes = {}
+		end
+
+		if not moneyData.PurchasedMoney then
+			moneyData.PurchasedMoney = 0
+		end
+
+		if moneyData.Bounty == nil then
+			moneyData.Bounty = 0
+			bountyPlrs[player] = nil
+		end
+
+		if not playerData.TempData.LeaveStats then
+			playerData.TempData.LeaveStats = defaultPlayerData.TempData.LeaveStats
+		end
+
+		local neverLoggedIn = not playerData.FirstLoginTick and playerData.TimePlayed <= 60 
+
+		if neverLoggedIn then
+			playerData.FirstLoginTick = os.time()
+		end
+
+		if not playerData.FFlags then
+			playerData.FFlags = {}
+		end
+
+		if not playerData.GiftedGamepasses then
+			playerData.GiftedGamepasses = {}
+		end
+
+		if not playerData.Cosmetics then
+			playerData.Cosmetics = {}
+			playerData.Cosmetics.Skins = {}
+		end
+		
+		if not playerData.Cosmetics.Cases then
+			playerData.Cosmetics.Cases = {}
+		end
+		
+		if not playerData.EquippedCosmetics then
+			playerData.EquippedCosmetics = {}
+			playerData.EquippedCosmetics.Skins = {}
+		end
+		
+		if not playerData.OtherStats then
+			playerData.OtherStats = deepCopy(defaultPlayerData.OtherStats)
+		end
+		
+		if not playerData.DailyLogin then
+			playerData.DailyLogin = deepCopy(defaultPlayerData.DailyLogin)
+		end
+
+		if not playerData.ShopUnlockHistory then
+			playerData.ShopUnlockHistory = {}
+		end
+		
+		--if RunService:IsStudio() then
+		--	task.delay(1,function()				
+		--		for i = 1,15 do
+		--			local modData = {
+		--				Name = "RVVZ";
+		--				UserId = 29761878;
+		--			}
+
+		--			local result,displayName = playerDataBase:GrantSkin("magnum_bronze","admin_spawn",nil,modData)
+		--		end
+		--	end)
+		--end
+		------------------------------------
+		--local data = SkinsHandlerM.GetAllSkinsFromClass("Guns")
+		--local data2 = {}
+		
+		--if game.GameId == 2881451226 and game.GameId ~= 1494262959 and not playerData.FFlags.TEST_RESET_CASES_1 then
+		--	playerData.FFlags.TEST_RESET_CASES_1 = true
+		--	playerData.Cosmetics.Cases = {}
+		--end
+		------------------------------------
+
+		if playerData.PlayedAfterFree == nil then
+			playerData.PlayedAfterFree = false
+		end
+
+		if playerData.FirstLoginTick and os.time() - playerData.FirstLoginTick < 5 then
+			--print("ye this is a new plaer lmao")
+			playerData.PlayedAfterFree = true
+		else
+			--print("not a new player")
+		end
+
+		if not playerData.TempData.STORE_KEY or playerData.TempData.STORE_KEY ~= defaultPlayerData.TempData.STORE_KEY then
+			--print("TEMP DATA RESET",player)
+			playerData.TempData = deepCopy(defaultPlayerData.TempData)
+			playerData.TempData.STORE_KEY = defaultPlayerData.TempData.STORE_KEY
+		end
+
+		if playerData.CLIENT_SETTINGS_KEY ~= DS_Settings.ClientSettingsKey then
+			warn("SETTINGS KEY CHANGED!")
+
+			playerData.CLIENT_SETTINGS_KEY = DS_Settings.ClientSettingsKey
+
+			playerData.ClientSettings = deepCopy(defaultClientSettings)
+			playerData.ClientSettings.RandomAvatar = neverLoggedIn and GameSettings.RandomAvatarEnabledForNewPlayers
+		else
+			playerData.ClientSettings = SettingsUpdated(player,playerData.ClientSettings,"8WERTJKSD90WEF9")
+		end
+
+		if not playerData.OtherSettings then
+			playerData.OtherSettings = {}
+		end
+
+		local joinData = player:GetJoinData()
+		if joinData and joinData.TeleportData then
+			playerData.OtherSettings.joinAllowMode = joinData.TeleportData[1]
+		end
+		
+		playerDataBase.actualLastLoginTick = playerData.LastLoginTick or 0
+		
+		playerData.LastLoginTick = os.time()
+		pd.LastLogin.Value =	playerData.LastLoginTick or 0
+		pd.FirstLogin.Value =	playerData.FirstLoginTick or 0
+		
+		if IS_STUDIO and DS_Settings.NoStudioData and DS_Settings.StudioMaxedOutStats then
+			levelData.Level = 1000
+			moneyData.Cash = 999999
+			moneyData.Bank = 99999999
+		end
+
+		playerDataBase.playerData = deepCopy(playerData)
+		playerDataBase.moneyData = deepCopy(moneyData)
+		playerDataBase.levelData = deepCopy(levelData)
+		
+		UpdateSkinData()
+	end
+	
+	local function FixUnlocks()
+		local m1911,va1,va2,vb1,vb2,ha1,ha2,hb1,hb2,va3,vb3,hb3,ha3
+		
+		for i,v in pairs(playerData.Unlocked) do
+			if v.Name == "M1911-A" or v.Name == "M1911-B" then
+				m1911 = true
+				table.remove(playerData.Unlocked,i)
+			elseif v.Name == "VestA_1" then
+				va1 = true
+			elseif v.Name == "VestA_2" then
+				va2 = true
+			elseif v.Name == "VestA_3" then
+				va3 = true
+			elseif v.Name == "VestB_1" then
+				vb1 = true
+			elseif v.Name == "VestB_2" then
+				vb2 = true
+			elseif v.Name == "VestB_3" then
+				vb3 = true
+			elseif v.Name == "HelmetA_1" then
+				ha1 = true
+			elseif v.Name == "HelmetA_2" then
+				ha2 = true
+			elseif v.Name == "HelmetA_3" then
+				ha3 = true
+			elseif v.Name == "HelmetB_1" then
+				hb1 = true
+			elseif v.Name == "HelmetB_2" then
+				hb2 = true
+			elseif v.Name == "HelmetB_3" then
+				hb3 = true
+			end
+		end
+		
+		if m1911 then
+			table.insert(playerData.Unlocked,"M1911")
+		end
+		
+		if va1 and not vb1 then
+			table.insert(playerData.Unlocked,"VestB_1")
+		end
+		if vb1 and not va1 then
+			table.insert(playerData.Unlocked,"VestA_1")
+		end
+		
+		if va2 and not vb2 then
+			table.insert(playerData.Unlocked,"VestB_2")
+		end
+		if va3 and not vb3 then
+			table.insert(playerData.Unlocked,"VestB_3")
+		end
+		if vb2 and not va2 then
+			table.insert(playerData.Unlocked,"VestA_2")
+		end
+		if vb3 and not va3 then
+			table.insert(playerData.Unlocked,"VestA_3")
+		end
+		
+		if ha1 and not hb1 then
+			table.insert(playerData.Unlocked,"HelmetB_1")
+		end
+		if hb1 and not ha1 then
+			table.insert(playerData.Unlocked,"HelmetA_2")
+		end
+
+		if ha2 and not hb2 then
+			table.insert(playerData.Unlocked,"HelmetB_2")
+		end
+		if ha3 and not hb3 then
+			table.insert(playerData.Unlocked,"HelmetB_3")
+		end
+		if hb2 and not ha2 then
+			table.insert(playerData.Unlocked,"HelmetA_2")
+		end
+		if hb3 and not ha3 then
+			table.insert(playerData.Unlocked,"HelmetA_3")
+		end
+	end
+	
+	local function DoStartLogs()
+		if isDSaving() and moneyData.Bank >= 10000000 or moneyData.Cash >= 10000000 then
+			pcall(function()
+				spawn(function()
+					local txt = "Bank: $" .. addComas(moneyData.Bank) .. "\n" .. "Cash: $" .. addComas(moneyData.Cash) .. "\n" .. "Purchased: $" .. addComas(moneyData.PurchasedMoney) .. "\n" .. "Level: " .. levelData.Level			
+					logRemote:Invoke(CLHSECKEY,"MoneyLog",player.Name,txt)
+				end)
+			end)
+		end
+
+		if not playerData.DidBarcodeLog then
+			local isBarCode = BarCodeCheckM(player.Name)
+			if (isBarCode or player.AccountAge <= 3)  then
+				playerData.DidBarcodeLog = tick()
+				
+				local typ = "Barcode"
+				local name = "BARCODE LOG"
+				local desc = "Potential barcode ussr"
+				
+				local tab = {
+					{
+						["name"] = "User:",
+						["value"] = player.Name .. " | " .. tostring(player.UserId),
+						["inline"] = false
+					},
+				}
+
+				if player.AccountAge <= 2 and not isBarCode then
+					local bruh = {
+						["name"] = "Age:",
+						["value"] = tostring(player.AccountAge) .. " days",
+						["inline"] = false
+					}
+
+					table.insert(tab,bruh)
+					
+					typ = "Sus"
+					name = "BARCODE LOG"
+					
+					desc = "Account age <3 days"
+				end
+				
+				spawn(function()
+					logRemote:Invoke(CLHSECKEY,"BarcodeLog",typ,player.Name,name,desc,tab)
+				end)
+			end
+		end
+	end
+	
+	local function CheckInventoryB(inv)
+		for i,v in pairs(inv) do
+			if typeof(v) == "table" then
+				local toolName = v[1]
+				local toolData = v[2]
+
+				if toolName and toolData then
+					if toolName == "M1911-A" or toolName == "M1911-B" then
+						table.remove(inv,i)
+						table.insert(inv,"M1911")
+					end
+				end
+			end
+		end
+		
+		return inv
+	end
+	
+	local lastLoginTick = playerData.LastLoginTick or 0
+	local doneExpirationCheck = false
+	
+	StartChecker()
+	FixUnlocks()
+	DoStartLogs()
+
+	pd.Bank.Value =			moneyData.Bank
+	pd.DisplayName.Value =	player.Name
+	pd.Cash.Value =			moneyData.Cash
+	pd.Kills.Value =		playerData.Kills
+	pd.Deaths.Value =		playerData.Deaths
+	pd.TimePlayed.Value =	playerData.TimePlayed
+	pd.JoinTick.Value =		tick()
+	
+	local pd2 = ServerStorage.Storage.PlayerDataTemplate2:Clone()
+	pd2.NextAllowance.Value = GameSettings.NextAllowance
+	pd2.Name = player.Name
+	
+	local plrHasPrime = PrimeCheckM(player)
+
+	pd.Prime.Value = plrHasPrime
+
+	playerData.HasPrime = plrHasPrime
+	
+	local forceDoubleXP = GameSettings.PermDoubleXP or (GameSettings.WeekendDoubleXP and WeekendCheck())
+	
+	if levelData.DoubleXP == true or forceDoubleXP
+		--and levelData.DoubleXP_Code == DS_Settings.DoubleXP_PlayerKey
+	then
+		if true --levelData.DoubleXP_Tick and os.time() - levelData.DoubleXP_Tick < GameSettings.DoubleXP_AutoExpireHours * 3600 
+		then
+			--warn("got double xp")
+			
+			if forceDoubleXP then
+				pd2.DoubleXP.Perm.Value = true
+				pd2.DoubleXP.Timer.Value = pd2.DoubleXP.Timer.MaxValue
+			else
+				pd2.DoubleXP.Perm.Value = false
+				pd2.DoubleXP.Timer.Value = levelData.DoubleXP_Time
+			end
+			
+			pd2.DoubleXP.Value = true
+		else
+			--warn("douible xp expired")
+			levelData.DoubleXP = false
+			levelData.DoubleXP_Time = 0
+			pd2.DoubleXP.Value = false
+		end
+		--print("YES")
+	end
+	levelData.DoubleXP_Code = DS_Settings.DoubleXP_PlayerKey
+
+	local leaderstats = script.leaderstats:Clone()
+	local lvlValue = leaderstats.Level
+	--local bountyValue = leaderstats.Bounty
+	--bountyValue.Value = "..."
+		--"$" .. moneyData.Bounty
+
+	leaderstats.Parent = player
+
+	playerDataBase.playerData = deepCopy(playerData)
+	playerDataBase.levelData = deepCopy(levelData)
+	playerDataBase.moneyData = deepCopy(moneyData)
+	--delay(500,function()
+	--	if dLoaded and dLoaded.Parent then
+	--		dLoaded:Destroy()
+	--	end
+	--end)
+
+	local plrAlive = false
+	local DDBNTY = false
+
+	local d1,d2,d3,d4 = false,false,false,false
+	local dataFailedMSG = false
+	local lostCash = 0
+	local lostBank = 0
+	local lastHRP = nil
+	local lastHP = 100
+	local leftInCombat,isInCombatZone
+	local sBT = false
+	local isRCU = false
+	local didDHandler = false
+	local starterGear = {}
+	
+	local doneDailyLoginCheck = false
+	
+	local giftData = {}
+	
+	local displayName = ""
+	
+	local function UpdateTimePlayed()
+		local v = pd.TimePlayed.Value + (tick() - joinTime)
+		pd.TimePlayed.Value = v
+		joinTime = tick()
+		return v	
+	end
+
+	local function UpdateStats(fire,sound,mode)
+		if not (pd and pd.Parent) then return end
+
+		if not SANITY_CHECK(pd,player) then
+			return
+		end
+
+		pd.Kills.Value = playerData.Kills
+		pd.Deaths.Value = playerData.Deaths
+		playerData.TimePlayed = UpdateTimePlayed()
+		pd.Level.Value = levelData.Level
+		pd.XP.MaxValue = levelData.MaxXP
+		pd.XP.Value = levelData.XP
+		
+		moneyData.Cash = math.floor(moneyData.Cash)
+		moneyData.Bank = math.floor(moneyData.Bank)
+		
+		if not isRealNumber(moneyData.Bank) then -- 0/0
+			moneyData.Bank = 0
+		end
+		if not isRealNumber(moneyData.Cash) then -- 0/0
+			moneyData.Cash = 0
+		end
+		if not isRealNumber(moneyData.Bounty) then -- 0/0
+			moneyData.Bounty = 0
+		end
+		
+		if moneyData.Bounty then
+			moneyData.Bounty = math.floor(moneyData.Bounty)
+		end
+
+		pd.Cash.Value = moneyData.Cash
+		pd.Bank.Value = moneyData.Bank
+		pd.BMB.Value = moneyData.PurchasedMoney
+		
+		if not lvlValue and lvlValue.Parent then
+			lvlValue = player:FindFirstChild("leaderstats") and player.leaderstats:FindFirstChidl("Level")
+		end
+		if lvlValue and lvlValue.Parent then
+			lvlValue.Value = (pd2.Loaded.Value and levelData.Level) or "-"
+		end
+
+		--if bountyValue and bountyValue.Parent then
+		--	if pd2.Loaded.Value then
+		--		bountyValue.Value = "$" .. moneyData.Bounty
+		--		pd2.Bounty.Amount.Value = moneyData.Bounty
+		--	else
+		--		bountyValue.Value = "..."
+		--	end
+		--end
+
+		local maxXP = GetLevelM(GameSettings.START_XP,levelData.Level)
+		
+		if not isRealNumber(maxXP) then
+			maxXP = 999999999
+		end
+		
+		levelData.MaxXP = maxXP
+		
+		playerData.TempData.UpdateTick = os.time()
+		----------------------------------------------
+
+		if isDSaving() then
+			moneyStore:Set(moneyData)
+			levelStore:Set(levelData)
+			playerStore:Set(playerData)
+		end
+		
+		for _,v in pairs(playerData.Unlocked) do
+			if not pd.Unlocked:FindFirstChild(v) then
+				local b = Instance.new("BoolValue")
+				b.Name = v
+				b.Parent = pd.Unlocked
+			end
+		end
+
+		playerDataBase.playerData = deepCopy(playerData)
+		playerDataBase.levelData = deepCopy(levelData)
+		playerDataBase.moneyData = deepCopy(moneyData)
+		
+		if fire then
+			playerDataBase:Replicate(mode,sound)
+		end
+
+		return playerData
+	end
+
+	local function DiedHandler(leftGame)
+		if didDHandler or not pd then return end
+		
+		local Creator = _G.GetTag(player)
+		if not SANITY_CHECK(pd,player) then
+			return
+		end
+		--if not leftGame and player:GetAttribute("ANCESTRY_CHANGED") then
+		--	leftGame = true
+		--end
+		
+		didDHandler = true
+		
+		leftInCombat,isInCombatZone = _G.InCombatCheck(player,true)
+		--leftInCombat2 = _G.InCombatCheck(player)
+		--if not leftGame then
+		--	leftInCombat,leftInCombat2 = nil,nil
+		--end
+		
+		local lP_1 = GameSettings.CashLossPercentage or 0 
+		local lP_2 = GameSettings.CL_CashLossPercentage or 0
+		local bL_1 = GameSettings.BankLoss
+
+		if not bL_1 or typeof(bL_1) ~= "number" then
+			warn("GameSettings.CL_BankLoss is not a number!")
+		end
+		if not lP_1 or typeof(lP_1) ~= "number" then
+			warn("GameSettings.GameSettings.CashLossPercentage is not a number!")
+		end
+		if not lP_1 or typeof(lP_2) ~= "number" then
+			warn("GameSettings.GameSettings.CL_CashLossPercentage is not a number!")
+		end
+		
+		lP_1 = lP_1 * ServerStorage.Values.DeathCashDropMulti.Value
+		lP_2 = lP_2 * ServerStorage.Values.DeathCashDropMulti.Value
+		
+		lP_1 = math.max(lP_1,0)
+		lP_1 = math.min(lP_1,1)
+
+		lP_2 = math.max(lP_2,0)
+		lP_2 = math.min(lP_2,1)
+
+		bL_1 = math.max(bL_1,0)
+
+		local cashLoss = moneyData.Cash * lP_1
+		local bankLoss = 0
+		
+	
+		
+		--print(leftInCombat,isInCombatZone)
+
+		if leftInCombat then
+			bankLoss = bL_1
+
+			cashLoss = moneyData.Cash * lP_2
+		end
+
+		if leftGame then
+			bankLoss = bankLoss + GameSettings.CL_BankLoss
+		end
+		
+		cashLoss = math.min(cashLoss,GameSettings.MaxCashDeathDrop)
+		bankLoss = math.min(bankLoss,3000)
+		bankLoss = math.max(bankLoss,0)
+		cashLoss = math.min(cashLoss,1000)
+		cashLoss = math.max(cashLoss,0)
+		cashLoss = math.floor(cashLoss)
+		bankLoss = math.floor(bankLoss)
+		
+		local nn = 50 -- amount to drop thing
+		if cashLoss > 1 and cashLoss < nn and ServerStorage.Values.DeathCashDropMulti.Value > 0 then
+			cashLoss = math.min(cashLoss,moneyData.Cash)
+		end
+
+		lostBank = bankLoss
+		lostCash = cashLoss
+
+		local bountyNum = moneyData.Bounty
+		
+		local bountyCashLoss = bountyNum * GameSettings.BountyLossPerc
+				
+		local success,errorM = pcall(function()
+			if lastHRP then
+				
+				if not cashDropCDs[player.Name] then
+					cashDropCDs[player.Name] = {
+						amount = 0;
+						starttic = tick();
+					}
+					delay(GameSettings.CashDeathDropTimer,function()
+						cashDropCDs[player.Name] = nil
+					end)
+				end
+				
+				local can =  (cashDropCDs[player.Name] and cashDropCDs[player.Name].amount <= GameSettings.MaxCashDeathDrop * 3) or not cashDropCDs[player.Name]
+				
+				if can and not ServerStorage.Values.NoCashDrop.Value then
+					local CF = CFrame.new(lastHRP.Position + Vector3.new(0,1.5,0))
+					CF = CF * CFrame.Angles(0,math.rad(math.random(0,360)),0)
+
+					local lC = lostCash
+					if lC > 0 then
+						cashDropCDs[player.Name].amount = cashDropCDs[player.Name].amount + lC
+						delay(1,function()
+							Events3.D_CSH:Fire("8DR002",CF,1,lC,60)
+						end)	
+					end
+				end
+			end
+		end)
+		
+		if not success then
+			warn("Error dropping ",player.Name .. "'s cash",errorM)
+		end
+
+		moneyData.Bank  = moneyData.Bank - bankLoss
+		moneyData.Cash = moneyData.Cash - cashLoss
+		
+		playerDataBase:Replicate("money",false)
+		
+		local bountyReduc = 1
+
+		playerData.Deaths = playerData.Deaths + 1
+
+		local name = player.DisplayName
+		local id = player.UserId
+		local xp_multi = 1
+		local isHidden = false
+		
+		if isRCUCheck(player.Character,player) then
+			name = "[REDACTED]"
+			--id = "http://www.roblox.com/asset/?id=5869303407"
+			--isHidden = true
+			--xp_multi = 2
+		elseif player.Character and player.Character:FindFirstChildOfClass("Humanoid") then
+			local hum = player.Character:FindFirstChildOfClass("Humanoid")
+
+			if hum.DisplayName ~= "" then
+				--local success,result = pcall(function ()
+				--	return Players:GetUserIdFromNameAsync(hum.DisplayName)
+				--end)
+
+				if success then
+					name  = hum.DisplayName
+					--id = result
+					id = player.UserId
+				end
+			end
+		else
+			if success then
+				if displayName then
+					name = displayName
+				else
+					name = player.DisplayName
+				end
+				--id = result
+				--id = player.UserId
+			end
+		end
+
+		local accCreator
+		
+		local fakeChar
+		
+		local diedData = {}
+		
+		local doKillReward = nil
+		
+		local requiredKillRewardAmt = (DDBNTY and bountyNum > ServerStorage.Values.MinBountyToKill.Value * 0.1) or bountyNum > ServerStorage.Values.MinBountyToKill.Value
+		
+		if Creator and Creator.Parent and Creator.Value and Creator.Value.Parent then
+			accCreator = Creator.Value
+			
+			local Values = ReplicatedStorage.Values
+			if playerData.Deaths + 1 then
+				if not player.Neutral then
+					if Values.InvasionActive.Value == true then
+						if player.Team.Name == "Aliens" then
+							Values.InvasionActive.NoobLives.Value -= 1
+						elseif player.Team.Name == "Humans" then
+							Values.InvasionActive.ZombieLives.Value -= 1
+						end
+					end
+				end
+			end
+			
+			if player.Character then
+				player.Character:SetAttribute("WasTagKilled",true)
+			end
+			
+			if game.Teams:FindFirstChild("Infected") and ((not Creator.Value.Neutral and Creator.Value.Team==game.Teams.Infected) or ReplicatedStorage.Values.InfectOnDeath.Value==true) and player.Team~=game.Teams.Infected then
+				task.spawn(function()
+					local timePassed = tick()
+					repeat
+						game:GetService("RunService").Heartbeat:Wait()
+					until (tick()-timePassed<=2) or player.Parent == nil or player.Character.Parent==nil or player.Character.Humanoid.Parent==nil or player.Character.Humanoid:GetState() == Enum.HumanoidStateType.Dead
+					if player.Parent and player.Character.Parent and player.Character.Humanoid.Parent then
+						if Events:FindFirstChild("ResurrectRemote") then
+							Events.ResurrectRemote:Invoke(player,player.Character)
+						end
+					end
+				end)
+			end
+			
+			if game.Teams:FindFirstChild("Criminals") and game.Teams:FindFirstChild("Guard") and game.Teams:FindFirstChild("Inmates") and (not Creator.Value.Neutral and Creator.Value.Team==game.Teams.Guard) and (not player.Neutral and player.Team==game.Teams.Criminals) then
+				player.Team=game.Teams.Inmates
+			end
+			
+			local toolV = Creator:FindFirstChild("Tool")
+			local killDistanceV = Creator:FindFirstChild("Distance")
+			
+			local gotTool,killDistance
+			
+			if toolV and toolV.Value ~= "" then
+				--print(Creator.Value,toolV.Value)
+				gotTool = toolV.Value
+			end
+			if killDistanceV and killDistanceV.Value then
+				killDistance = killDistanceV.Value
+			end
+			
+			local ddisplayName = (Creator.Value and Creator.Value.Character and Creator.Value.Character:FindFirstChild("Humanoid") and Creator.Value.Character.Humanoid.DisplayName) or (Creator.Value and Creator.Value.DisplayName)
+			
+			AddToKillFeed(name,player,Creator.Value,ddisplayName,gotTool,killDistance)
+			
+			local function getWeaponName(weaponName)
+				for _,v in pairs(ReplicatedStorage.Storage.ItemStats:GetChildren()) do
+					for _,z in pairs(v:GetChildren()) do
+						if z.Name == weaponName then
+							return tostring(z.DisplayName.Value)
+						end
+					end
+				end
+				
+				if weaponName == "Fists" then
+					return weaponName
+				end
+				
+				return "[REDACTED]"
+			end
+			
+			local weaponName = getWeaponName(gotTool)
+			
+			
+			local kName2 = ""
+			if isRCUCheck(Creator.Value and Creator.Value.Character,Creator.Value) then
+				kName2 = "[REDACTED]"
+			else
+				kName2 = ddisplayName
+			end
+			
+			local accName = accCreator and accCreator.Name
+			
+			local kN1 = ""
+			
+			if kName2 ~= "[REDACTED]" then
+				if kName2 == accName then
+					kN1 = "@" .. kName2
+				else
+					kN1 = kName2
+				end
+			else
+				kN1 = kName2
+			end
+	
+			--else
+				diedData = {
+					KillerName = kN1;
+					KillDistance = killDistance and killDistance .. " STUDS";
+					WeaponName = weaponName;
+					canReport = true;
+				}
+			--end
+			
+			playerDataBase:CreateReportData(Creator.Value,ddisplayName,gotTool,killDistance)
+		
+			if not isHidden then
+				fakeChar = CreateViewportCharacterM(player)
+			end
+
+			local kpd = PlayerbaseData[accCreator.Name]
+			local kpd2 = PlayerbaseData2:FindFirstChild(accCreator.Name)
+			if kpd then
+
+				local killCash =	playerDataBase:GetKillCash()
+				local killXP =		playerDataBase:GetKillXP()
+
+				local db = DataBase[accCreator]
+
+				--local bountyCalc = bountyNum / GameSettings.MaxBounty
+				--	killCash = Lerp(killCash, killCash * GameSettings.MaxBountyCashMulti,bountyCalc)
+				--killCash = Round(killCash,25)
+				
+				if player:GetAttribute("CustomKillCash") and not ReplicatedStorage.Values.DataSaving.Value then
+					killCash = player:GetAttribute("CustomKillCash")
+				end
+
+				killCash = math.floor(killCash + 0.5)
+				local bountyCashh = math.floor(bountyNum + 0.5)
+				
+				killCash = Round(killCash + bountyCashh,5)
+				
+				local bN = Round(math.max(math.floor((bountyNum * GameSettings.KillBountyXPPerc) + 0.5),0) * xp_multi,5)
+				killXP = killXP + bN
+				killXP = math.min(math.floor(killXP),10000)
+
+				bountyReduc = 0
+				bankLoss = bankLoss + bountyCashLoss
+				
+				doKillReward = not player:GetAttribute("LEAVE_SAVED")
+				if ServerStorage.Values.MinBountyToKill.Value > 0 and not requiredKillRewardAmt then
+					doKillReward = false
+				end
+				
+				local noKillXP = false
+				if player:GetAttribute("_LRTF") and tick() - player:GetAttribute("_LRTF") < 2 then -- if they get rectified in last 2 secs, no kill xp!
+					killXP = 0
+					noKillXP = true
+				end
+
+				if db then
+					if ReplicatedStorage.Values.DataSaving.Value then
+						db:AddStat("Kills",1)
+					end
+					
+					if doKillReward then					
+						db:AddXP(killXP)
+						if not ServerStorage.Values.DisableMinCashToBank.Value and killCash > GameSettings.MinCashToBank then
+							db:AddMoney("Bank",killCash - GameSettings.MinCashToBank)
+							db:AddMoney("Cash",GameSettings.MinCashToBank)
+						else
+							db:AddMoney("Cash",killCash)
+						end
+					end
+					
+					if not leftGame then
+						_G.CombatTagChar(accCreator,45,"KL")
+						
+						if not (GameSettings.NoBountyInCombatZones and isInCombatZone) then
+							db:AddBounty(GameSettings.KillBounty)
+						end
+					end
+					
+					if doKillReward and ServerStorage.Values.KillHPPerc.Value > 0 then
+						db:DoKillHeal(ServerStorage.Values.KillHPPerc.Value)
+					end
+				end
+				
+				local dC,dXP = killCash,killXP
+				
+				local doubleXP = db and db:HasDoubleXP()
+				
+				--if ReplicatedStorage.Values.PrimeServer.Value then
+				--	dXP *= 2
+				--end
+				if doubleXP then
+					dXP *= 2
+				end
+				dXP = math.floor(dXP)
+				
+				local GfjF = false
+				
+				local accC_Tools = {}
+				
+				for _, v in pairs(accCreator.Backpack:GetChildren()) do
+					table.insert(accC_Tools, v)
+				end
+				
+				if accCreator.Character and accCreator.Character:FindFirstChildOfClass("Tool") then
+					table.insert(accC_Tools, accCreator.Character:FindFirstChildOfClass("Tool"))
+				end
+				
+				for _, v in pairs(accC_Tools) do
+					if v.Name == weaponName and v:GetAttribute("HasKilltrack") and v:GetAttribute("ID") and v:GetAttribute(accCreator.Name) and not GfjF then
+						local db_000 = DataBase[accCreator]
+						local ID = v:GetAttribute("ID")
+						for __, vv in pairs(db_000.playerData.Cosmetics.Skins) do
+							if __ then
+								if tostring(__) == tostring(ID) then
+									
+									if ReplicatedStorage.Values.DataSaving.Value then
+										db_000:AddKillID(ID, v)
+									end
+									
+									GfjF = true
+								end
+							end
+						end
+					end
+				end
+				
+				Events3.KillAssistReceived:Fire(Creator.Value,player,"kill",killCash,dXP)
+			
+				if doKillReward then
+					if noKillXP or player:GetAttribute("HideKillXP") then
+						dXP = nil
+					end
+					killEvent:FireClient(accCreator,name,id,"KILLED",dC,dXP,isHidden,fakeChar)
+				end
+				
+				db:CheckIfAltFarmKill(player,player.Character and player.Character.PrimaryPart and player.Character.PrimaryPart.Position,tostring(gotTool))
+				
+				warn(accCreator,"killed",name)
+				
+				dC,dXP = nil,nil
+			end
+			Creator:Destroy()
+		else
+			local secondaryTag = _G.GetSecondaryTag(player)
+
+			if secondaryTag then
+				diedData = {
+					KillerName = secondaryTag.killer;
+					KillDistance = secondaryTag.distance and secondaryTag.distance .. " STUDS";
+					WeaponName = secondaryTag.weapon;
+				}
+			end
+		end
+		
+		local bountySet =  math.floor(moneyData.Bounty * bountyReduc)
+
+		if (bountySet <= 0 and moneyData.Bounty > 500) or (moneyData.Bounty > 0 and ServerStorage.Values.MinBountyToKill.Value > 0 and doKillReward) then
+			playerDataBase:BountyClaimed(moneyData.Bounty)
+		end
+
+		moneyData.Bounty = math.floor(bountySet)
+		
+		Events.DiedDataa:FireClient(player,diedData)
+
+		if not Creator or not Creator.Value or not Creator.Value.Parent then return end
+
+		local Assists = _G.GetAssists(player,Creator.Value)
+
+		if not ServerStorage.Values.AssistsDisabled.Value and Assists then
+			for _,v in pairs(Assists) do
+				if v.Value and v.Value ~= accCreator then
+					local vpd = PlayerbaseData[v.Value.Name]
+
+					local killCash =	playerDataBase:GetKillCash(GameSettings.AssistKill_Multi)
+					local killXP =		playerDataBase:GetKillXP(GameSettings.AssistXP_Multi)
+
+					--local bountyCalc = bountyNum / GameSettings.MaxBounty
+					--	killCash = Lerp(killCash, killCash * GameSettings.MaxBountyCashMulti,bountyCalc)
+					--killCash = Round(killCash,25)
+					
+					if player:GetAttribute("CustomKillCash") and not ReplicatedStorage.Values.DataSaving.Value then
+						killCash = player:GetAttribute("CustomKillCash") * GameSettings.AssistKill_Multi
+					end
+
+					killCash = math.floor(killCash + 0.5)
+				
+					local bountyCashh = math.floor((bountyNum * GameSettings.AssistBountyCashPerc) + 0.5)
+					
+					killCash = Round(killCash + bountyCashh,5)
+					
+					local bN = Round(math.max(math.floor((bountyNum * GameSettings.AssistBountyXPPerc) + 0.5),0) * xp_multi,10)
+					killXP = math.min(math.floor((killXP + bN) + 0.5),10000)
+
+					local db = DataBase[v.Value]
+					
+					local doKillReward = not player:GetAttribute("LEAVE_SAVED")
+					if ServerStorage.Values.MinBountyToKill.Value > 0 and not requiredKillRewardAmt then
+						doKillReward = false
+					end
+					
+					local noKillXP = false
+					if player:GetAttribute("_LRTF") and tick() - player:GetAttribute("_LRTF") < 2 then -- if they get rectified in last 2 secs, no kill xp!
+						killXP = 0
+						noKillXP = true
+					end
+		
+					if db and doKillReward then
+						if killXP > 0 then
+							db:AddXP(killXP)
+						end
+						if killCash > GameSettings.MinCashToBank then
+							db:AddMoney("Bank",killCash - GameSettings.MinCashToBank)
+							db:AddMoney("Cash",GameSettings.MinCashToBank)
+						else
+							db:AddMoney("Cash",killCash)
+						end
+					end
+
+					pcall(function()
+						if not leftGame and db and player and player.Parent 
+							--and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and (player.Character.HumanoidRootPart.Position - v.Value.Character.HumanoidRootPart.Position).Magnitude < 30 
+						then
+							_G.CombatTagChar(v.Value,30,"ASI")
+							
+							if not (GameSettings.NoBountyInCombatZones and isInCombatZone) then
+								db:AddBounty(GameSettings.AssistBounty)
+							end
+						end
+					end)
+					
+					if doKillReward then
+						local doubleXP = db and db:HasDoubleXP()
+						
+						local nXP = killXP
+						--if ReplicatedStorage.Values.PrimeServer.Value then
+						--	nXP *= 2
+						--end
+						if doubleXP then
+							nXP *= 2
+						end
+						nXP = math.floor(nXP)
+						
+						if noKillXP or player:GetAttribute("HideKillXP") then
+							nXP = nil
+						end
+						
+						killEvent:FireClient(v.Value,name,id,"ASSIST",killCash,nXP,isHidden,fakeChar)
+					end
+					
+					Events3.KillAssistReceived:Fire(Creator.Value,player,"assist",killCash,killXP)
+				end 
+			end
+		end
+		
+		local _s,_e = pcall(function()
+			coroutine.wrap(function()
+				--HIGH BOUNTY LOGGER
+				if doKillReward and bountyNum >= 5000 and isDSaving() and Creator and Creator.Value and Creator.Value.Parent then
+					local gotDB = DataBase[Creator.Value]
+
+					if gotDB then
+						local level = tostring(gotDB.levelData.Level)
+
+						local desc = "Amount: $" .. bountyNum .. "\n" .. "Claimed by: " .. Creator.Value.Name .. " | " .. Creator.Value.UserId .. "\n" .. "Claimer Level: " .. level
+						
+						--print(desc)
+						
+						--	local l_success = logRemote:Invoke(BanSystem.GOLID,"ExploitLog",self.UserName,"SERVER-LOG","LID:" .. tostring(code) .. " | Log Info:",logDesc)
+						
+						local l_success = logRemote:Invoke(CLHSECKEY,"ExploitLog",player.Name,"BOUNTY-CLAIM-LOG","High bounty claimed",desc,"BountyClaimed")
+					end
+					--
+				end
+			end)()
+		end)
+		if not _s then
+			warn("Error bounty log check:",_e)
+		end
+
+		for _,v in pairs(Assists) do
+			v:Destroy()
+		end
+
+		UpdateStats(true,false,"money,level,bounty")
+	end
+
+	local function AddXP(num,ignoreDouble,bypassNormal)
+		local isPrime = ReplicatedStorage.Values.PrimeServer.Value
+		
+		local function Do(xp)
+			if typeof(xp) ~= "number" then return end
+			xp = math.max(xp,0)
+			
+			if xp > 10000 then
+				warn("too mcuh xp bruh..")
+				return
+			end
+			
+			if not bypassNormal and ServerStorage.Values.NoNormalXp.Value then
+				return false
+			end
+			
+			if not isPrime and not ignoreDouble and levelData.Level >= GameSettings.MaxNonPrimeLevel then
+				return false
+			end
+
+			
+			xp = math.floor(xp)
+			
+			local amount = levelData.XP
+			--local multi = GameSettings.LevelMulti
+
+			amount = amount + xp
+
+			amount = math.floor(amount)
+
+			--multi = math.max(multi,1)
+			--multi = math.min(multi,2)
+
+			local currentMax = levelData.MaxXP
+
+			if not ReplicatedStorage.Values.NoXPGain.Value then
+				if levelData.Level >= GameSettings.MaxLevel then
+					levelData.XP = currentMax
+				else
+					levelData.XP = amount
+
+					if amount >= currentMax then
+						levelData.XP = 0
+						levelData.Level = levelData.Level + 1
+
+						local maxXP = GetLevelM(GameSettings.START_XP,levelData.Level)
+						
+						if not isRealNumber(maxXP) then
+							maxXP = 9999999999
+						end
+						
+						levelData.MaxXP = maxXP
+
+						local reward = GetLevelRewardM(GameSettings.START_LEVELUP_REWARD,levelData.Level)
+						--reward = math.max(reward,0)
+						--reward = math.min(reward,1000000)
+						
+						if not isRealNumber(reward) then
+							reward = 0
+						end
+						
+						reward = math.min(reward,500000)
+
+						if levelData.Level >= GameSettings.MaxLevel then
+							--reward = reward * 2
+						end
+
+						playerDataBase:AddMoney("Bank",reward)
+
+						Events.LevelUp:FireClient(player,levelData.Level,reward)
+
+						return Do(amount - currentMax)
+					end
+				end
+			end
+			
+			return true
+		end
+
+		local amtMulti = 1
+		
+		if not ignoreDouble then
+			--if isPrime then
+			--	amtMulti *= 2
+			--end
+			if pd2 and pd2.DoubleXP.Value then
+				amtMulti *= 2
+			end
+		end
+
+		num = num * amtMulti
+		num = math.floor(num)
+
+		local x = Do(num)
+		
+		if x then
+			Events.GotXP:FireClient(player,num)
+			UpdateStats(true,false,"level")
+		end
+	end
+	
+	function playerDataBase:DoSave(m,p,l)
+		if isDSaving() then
+			if m then
+				moneyStore:Save(true)
+			end
+			if p then
+				playerStore:Save(true)
+			end
+			if l then
+				levelStore:Save(true)
+			end
+		end
+	end
+	
+	function playerDataBase:AddGiftedPass(passName,gifterUserId)
+		if not playerData.GiftedGamepasses then
+			playerData.GiftedGamepasses = {}
+		end
+		if playerData.GiftedGamepasses[passName] then
+			return
+		end
+		
+		local t = {}
+		
+		t.date = os.time()
+		t.gifterUserId = gifterUserId
+		
+		playerData.GiftedGamepasses[passName] = t
+		
+		if passName == "CosmeticSlots1" or passName == "CosmeticSlots2" then
+			playerDataBase:Replicate("cosmetics_invlimit",false)	
+		end	
+		
+		playerDataBase:UpdateGamepasses(true,true)	
+		
+		return t
+	end
+	
+	function playerDataBase:AddPurchasedMoney(num)
+		local success2, errorMessage2 = pcall(function()
+			purchaseHistoryStore2:UpdateAsync(player.UserId, function(oldValue)
+				local newValue = oldValue or 0
+				newValue = newValue + num
+				return newValue
+			end)
+		end)
+
+		if not success2 then
+			warn("Cannot save purchase data2: " .. errorMessage2)
+		end
+
+		moneyData.PurchasedMoney = moneyData.PurchasedMoney + num
+	end
+
+	function playerDataBase:AddMoney(mode,num,wasPurchased)
+		if not tonumber(num) then return end
+		num = tonumber(num)
+		--num = math.max(num,0)
+		--num = math.min(num,100000)
+		
+		if not isRealNumber(num) then
+			return
+		end
+		
+		if mode == "Cash" then
+			moneyData.Cash = moneyData.Cash + num
+		elseif mode == "Bank" then
+			moneyData.Bank = moneyData.Bank + num
+		end
+
+		moneyData.Cash = math.max(moneyData.Cash,0)
+		moneyData.Bank = math.max(moneyData.Bank,0)
+
+		moneyData.Cash = math.min(moneyData.Cash,1000000000)
+		moneyData.Bank = math.min(moneyData.Bank,1000000000)
+		
+		if not moneyData.PurchasedMoney then
+			moneyData.PurchasedMoney = 0
+		end
+
+		if wasPurchased then
+			local success2, errorMessage2 = pcall(function()
+				purchaseHistoryStore2:UpdateAsync(player.UserId, function(oldValue)
+					local newValue = oldValue or 0
+					newValue = newValue + num
+					return newValue
+				end)
+			end)
+
+			if not success2 then
+				warn("Cannot save purchase data2: " .. errorMessage2)
+			end
+
+			moneyData.PurchasedMoney = moneyData.PurchasedMoney + num
+
+			------coroutine.resume(coroutine.create(function()
+			------	moneyStore:Save()
+			------	--DataStore2.SaveAll(player)
+			----end))
+		end
+
+		Events.GotCash:FireClient(player,num)
+
+		UpdateStats(true,false,"money")
+	end
+	
+	function playerDataBase:GetDailyLoginReward()
+		local function DoDo()
+			assert(playerData.DailyLogin,"playerData.DailyLogin nil")
+			
+			if doneDailyLoginCheck then
+				return
+			end
+			
+			doneDailyLoginCheck = true
+			
+			if os.time() - playerDataBase.actualLastLoginTick > 86400 * 2 or playerData.DailyLogin.RESET_CODE ~= DS_Settings.DailyLogin_PlayerKey then -- more than one day
+				playerData.DailyLogin.DayStreak = 0-- back to day 1
+				playerData.DailyLogin.LastClaim = 0  -- reset
+
+				playerData.DailyLogin.RESET_CODE = DS_Settings.DailyLogin_PlayerKey
+			end
+
+			if os.time() - playerData.DailyLogin.LastClaim >= 86400 then-- 86400 | -- check if been 24 hours since last claim
+
+				-- time for daily login!
+				--player:SetAttribute("CanDailyReward",true)
+
+				local ui = ReplicatedStorage.Storage.GUIs.DailyLoginGUI:Clone()
+				ui:SetAttribute("CurrentDay",playerData.DailyLogin.DayStreak + 1)
+				ui:SetAttribute("HasPrime",playerDataBase.PrimeCheck())
+				ui.Parent = player.PlayerGui
+				
+				return true
+			end
+		end
+
+		local success,_e = pcall(DoDo)
+		if not success then
+			warn("GetDailyLoginReward Error:",_e,tostring(player))
+		end
+
+		return success
+	end
+	
+	function playerDataBase:ClaimDailyLoginReward()
+		local function DoDo()
+			assert(playerData.DailyLogin,"playerData.DailyLogin nil")
+			assert(playerData.DailyLogin,"playerData.DailyLogin nil")
+			
+			if os.time() - playerData.DailyLogin.LastClaim >= 86400 then -- check if been 24 hours since last claim
+				playerData.DailyLogin.LastClaim = os.time()
+
+				playerData.DailyLogin.DayStreak += 1
+
+				local streak = playerData.DailyLogin.DayStreak
+
+				if playerData.DailyLogin.DayStreak >= 7 or playerData.DailyLogin.DayStreak < 0 then
+					playerData.DailyLogin.DayStreak = 0
+				end
+				
+				local function DoReward(tab)
+					local reward = tab[streak]
+					if not reward then
+						warn("Failed to get reward",streak)
+						return
+					end
+
+					local typ,value = reward[1],reward[2]
+					
+					if typ == "XP" then
+						playerDataBase:AddXP(value)
+						return true
+					elseif typ == "Cash" then
+						playerDataBase:AddMoney("Bank",value)
+						return true
+					elseif typ == "Case" then
+						local crateName = value[math.random(1,#value)]
+						
+						local skr = SkinsHandlerM.GetNewPlayerSkinCaseData(player,crateName,false,true)
+
+						local result = playerDataBase:GrantCase(skr,1,"daily_login")
+						
+						return true
+					end
+				end
+
+				local result1 = DoReward(DailyLoginRewardM.Free)
+				--print("reward1")
+				if playerDataBase:PrimeCheck() then
+					local result2 = DoReward(DailyLoginRewardM.Prime)
+					--print("reward2")
+					
+					playerDataBase:Replicate("money",false)
+				end
+				
+				local tab = {
+					Title = "Daily Login";
+					Text = "Successfully claimed daily login reward!";
+					Duration = 10;
+					Button1 = "Close";
+				}
+				Events.Notification:FireClient(player,tab,"purchase")
+
+				return true
+			end
+		end
+
+		local success,result = pcall(DoDo)
+
+		if success then
+			return (result and result) or nil
+		else
+			warn("ClaimDailyLoginReward Error:",result,tostring(player))
+		end
+
+		return result
+	end
+	
+	function playerDataBase:AttemptGiftPurchase(giftType,targetPlr,purchaseType)
+		local function DoDo()
+			--print(111,giftType,targetPlr)
+			if typeof(giftType) ~= "string" then
+				return
+			end
+			if purchaseType ~= "pass" and purchaseType ~= "product" and purchaseType ~= "case" then
+				return
+			end
+			--print(222)
+			if typeof(targetPlr) ~= "Instance" then
+				return
+			end
+			--print(333)
+			if targetPlr.ClassName ~= "Player" then
+				return
+			end
+			if not targetPlr.Parent then
+				return
+			end
+			--print(444)
+			local gotDB = DataBase[targetPlr]
+			if not gotDB then
+				return
+			end
+			local pd = PlayerbaseData:FindFirstChild(targetPlr.Name)
+			if not pd then
+				return
+			end
+			--print(555)
+
+			local foundGiftTab = giftProductsModule[giftType] or (purchaseType == "case" and SkinsHandlerM.GetGiftTabFromName(giftType))
+
+			if foundGiftTab then
+				--print(666)
+
+				local productId,isGP = foundGiftTab[1],foundGiftTab[2]	
+				
+				if purchaseType == "case" then
+					if not playerDataBase:CheckPaidItemsAllowed(true) then
+						return false
+					end
+
+					local invFull,invMax = SkinsHandlerM.CheckInventoryLimit("Case",targetPlr,deepCopy(gotDB.playerData),false)	
+					if invFull then
+						return false
+					end
+				elseif isGP then
+					local function CanGiftThisPass()
+						local gotGamepassId
+
+						for i,v in pairs(gamepassesModule) do
+							if v[1] == giftType then
+								gotGamepassId = i
+								break
+							end
+						end
+
+						--print(777)
+
+						if not gotGamepassId then
+							return
+						end
+
+						--print(888)
+
+						local _s,_e = pcall(function()
+							return MarketplaceService:UserOwnsGamePassAsync(targetPlr.UserId,gotGamepassId)
+						end)
+						if not _s or (_s and _e) then
+							return
+						end
+
+						local gotPasses = gotDB:GetGamepasses(false)
+
+						--print(999,not gotPasses, gotPasses and table.find(gotPasses,giftType))
+
+						if not gotPasses or table.find(gotPasses,giftType) then
+							return
+						end
+
+						--print(1111)
+
+						local info = MarketplaceService:GetProductInfo(gotGamepassId,Enum.InfoType.GamePass)
+
+						if (info and not info.IsForSale) or not info then
+							return
+						end
+
+						return true
+					end
+
+
+					if not CanGiftThisPass() then
+		
+						return
+					end
+				end
+
+				MarketplaceService:PromptProductPurchase(player,productId)
+
+				giftData.targetPlr = targetPlr
+				giftData.productId = productId
+				giftData.isGP = isGP
+				giftData.active = true
+
+				return true
+			end
+		end
+		
+		local result = DoDo()
+		
+		if not result then
+			local tab = {
+				Title = "Gifting Error";
+				Text = "Error gifting player (unavailable/already owned)";
+				Duration = 6;
+				Button1 = "Close";
+			}
+			ReplicatedStorage.Events.Notification:FireClient(player,tab,"error")
+		end
+
+		return result
+	end
+	
+	function playerDataBase:GetActiveGiftData()
+		return giftData
+	end
+	
+	function playerDataBase:ClearActiveGiftData()
+		warn("cleared gift data",player)
+		giftData = {}
+	end
+	
+	function playerDataBase:CheckPaidItemsAllowed(doNotif)
+		if playerDataBase.ArePaidRandomItemsRestricted then
+			local tab = {
+				Title = "Restricted";
+				Text = "Paid Random Items are restricted in your region.";
+				Duration = 5;
+				Button1 = "Close";
+			}
+
+			ReplicatedStorage.Events.Notification:FireClient(player,tab,"error")
+			
+			return false
+		else
+			return true
+		end
+	end
+	
+	function playerDataBase:SetMoney(mode,num,wasPurchased)
+		if not tonumber(num) then return end
+		num = tonumber(num)
+		
+		if ReplicatedStorage.Values.DataSaving.Value then
+			return
+		end
+		--num = math.max(num,0)
+		--num = math.min(num,100000)
+
+		if not isRealNumber(num) then
+			return
+		end
+
+		if mode == "Cash" then
+			moneyData.Cash = num
+		elseif mode == "Bank" then
+			moneyData.Bank = num
+		end
+
+		moneyData.Cash = math.max(moneyData.Cash,0)
+		moneyData.Bank = math.max(moneyData.Bank,0)
+
+		moneyData.Cash = math.min(moneyData.Cash,1000000000)
+		moneyData.Bank = math.min(moneyData.Bank,1000000000)
+
+		--Events.GotCash:FireClient(player,num)
+
+		UpdateStats(true,false,"money")
+	end
+	
+	function playerDataBase:AddStarterGear(list,noDup)	
+		for _,v in pairs(list) do
+			local c = true
+			if noDup then
+				for _,z in pairs(list) do
+					if z == v then
+						c = false
+					end
+				end
+			end
+			
+			if c then
+				table.insert(starterGear,v)
+			end
+		end
+	end
+	
+	function playerDataBase:RemoveStarterGear(list)
+		if list == "all" then
+			starterGear = {}
+		else
+			for _,v in pairs(list) do
+				for i2,z in pairs(starterGear) do
+					if z == v then
+						table.remove(starterGear,i2)
+					end
+				end
+			end
+		end
+	end
+
+	function playerDataBase:DoubleXP(mode,tim)
+		if mode then
+			if typeof(tim) == "number" 
+				--and tim > 0 
+			then
+				if pd2.DoubleXP.Perm.Value then
+					pd2.DoubleXP.Timer.Value = 1
+				end
+				
+				pd2.DoubleXP.Timer.Value = math.min(pd2.DoubleXP.Timer.Value + tim,21600)
+				pd2.DoubleXP.Value = true
+				levelData.DoubleXP = true
+				levelData.DoubleXP_Time = pd2.DoubleXP.Timer.Value
+				
+				if not levelData.DoubleXP_Count then
+					levelData.DoubleXP_Count = 0
+				end
+				levelData.DoubleXP_Count = levelData.DoubleXP_Count + 1
+				levelData.DoubleXP_Tick = os.time()
+			end
+		else
+			pd2.DoubleXP.Timer.Value = 0
+			pd2.DoubleXP.Value = false	
+			levelData.DoubleXP = false
+			levelData.DoubleXP_Time = 0
+		end
+	end
+	
+	function playerDataBase:HasDoubleXP()
+		return pd2.DoubleXP.Value
+	end
+
+	function playerDataBase:ReductBounty()
+		if pd2.Loaded.Value and moneyData.Bounty > 0 and not _G.InCombatCheck(player,true) and player.Character and not player.Character:FindFirstChild("ProtectionFF") and player.Character:FindFirstChild("Humanoid") and player.Character:FindFirstChild("Humanoid").Health > 0 then
+			moneyData.Bounty = math.floor(math.max(moneyData.Bounty - GameSettings.BountyReducAmt,0))
+			
+			if moneyData.Bounty < 300 then
+				DDBNTY = false
+			end
+			
+			UpdateStats(true,false,"bounty")
+		end
+	end
+	
+	function playerDataBase:BountyClaimed(bountyNum)
+		local isRCU = isRCUCheck(player.Character,player)
+		
+		if isRCU then return end
+		
+		local displayName = (isRCU and "[REDACTED]") or ((player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.DisplayName) or playerDataBase.LastDisplayName or "[Unknown]")
+		local tab = {
+			Title = "Bounty Claimed";
+			Text = displayName .. "'s " .. ((bountyNum and "$" .. bountyNum)  or "") .. " bounty was claimed.";
+			Duration = 15;
+			Button1 = "Close";
+		}
+
+		--if isReady then
+		--	tab.Icon = content
+		--end
+
+		local fakeChar = CreateViewportCharacterM(player)
+		tab.ViewportIcon = fakeChar
+
+		Events.Notification:FireAllClients(tab,"Beep2")	
+	end
+
+	function playerDataBase:AlertBounty()
+		local d = moneyData.Bounty
+
+		if (not bountyPlrs[player] and d >= 1000) or (bountyPlrs[player] and d >= bountyPlrs[player].A + 1000) then
+			local cod = math.random()
+
+			bountyPlrs[player] = {A = d;code = cod}
+
+			--local userId = player.UserId
+			--local thumbType = Enum.ThumbnailType.HeadShot
+			--local thumbSize = Enum.ThumbnailSize.Size150x150
+			--local content, isReady = Players:GetUserThumbnailAsync(userId, thumbType, thumbSize)
+			
+			local displayName = (isRCUCheck(player.Character,player) and "[REDACTED]") or ((player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.DisplayName) or playerDataBase.LastDisplayName or "[Unknown]")
+			local tab = {
+				Title = "Bounty Alert";
+				Text = displayName .. ": $" .. tostring(d);
+				Duration = 20;
+				Button1 = "Close";
+			}
+
+			--if isReady then
+			--	tab.Icon = content
+			--end
+			
+			local fakeChar = CreateViewportCharacterM(player)
+			tab.ViewportIcon = fakeChar
+			
+			
+			if ServerStorage.Values.MinBountyToKill.Value > 0 then
+				DDBNTY = true
+			end
+
+			Events.Notification:FireAllClients(tab,"Beep2")	
+
+			delay(60,function()
+				if bountyPlrs[player] and bountyPlrs[player].code == cod then
+					bountyPlrs[player] = nil
+				end
+			end)
+		end	
+	end
+
+	function playerDataBase:CreateReportData(killer,displayName,weapon,distance)
+		if not killer then return end
+		
+		local data = {}
+
+		data.name = killer.Name
+		data.userid = killer.UserId
+		data.displayname = displayName
+		data.player = killer
+		data.ReporterID = player.UserId
+		
+		data.reportLog = {}
+
+		data.reportLog.Weapon = weapon
+		
+		if distance then
+			data.reportLog.Distance = distance .. " studs"
+		else
+			data.reportLog.Distance = "N/A"
+		end
+		
+		local killerDB = DataBase[killer]
+		
+		if killerDB then
+			local killerData = killerDB:GetReportData()
+			
+			if killerData then
+				for i,v in pairs(killerData) do
+					data.reportLog[i] = v
+				end
+			end
+		end
+		
+		playerDataBase.ReportData = data
+	end
+	
+	function playerDataBase:GetReportData()
+		local t = {}
+		
+		t.Level = levelData.Level
+		t.Bounty = moneyData.Bounty or 0
+		t.KDR = math.floor((playerData.Kills / math.max(playerData.Deaths,1)) * 100 ) / 100
+		t["Account Age"]= tostring(player.AccountAge) .. " days"
+		
+		local joinData = player:GetJoinData()
+		local device = "N/A"
+		if joinData and joinData.TeleportData then
+			local d = joinData.TeleportData[2]
+
+			if d == 1 then
+				device = "PC"
+			elseif d == 2 then
+				device = "XBOX"
+			elseif d == 3 then
+				device = "MOBILE"
+			end
+		end
+		
+		t["Device"] = device
+		
+		return t
+	end
+	
+	function playerDataBase:FileReport(reportType,description)
+		local reportData = playerDataBase.ReportData
+		if not reportData or playerDataBase.FiledReport then return end
+		
+		local ID = HTTPService:GenerateGUID()
+		ID = string.sub(ID,6,19)
+		reportData.ReportID = string.upper(ID)
+		
+		reportData.Description = description or "N/A"
+		
+		local reportTitle = reportType == 1 and "EXPLOIT-REPORT" or "ABUSE-REPORT"
+
+		local l_success = logRemote:Invoke(CLHSECKEY,"ReportFileLog",reportData.name,player.Name,reportTitle,reportData,ReplicatedStorage.Values.PrimeServer.Value,false)
+		
+		playerDataBase.ReportData = nil
+		playerDataBase.FiledReport = true
+		
+		if l_success then
+			local banPlr = BanSystemM.new(reportData.userid)
+
+			local success,didReportTimeout = banPlr:AddReport(player.Name,reportData)
+			
+			if didReportTimeout then
+				delay(100,function()
+					banPlr:Destroy()
+				end)
+			end				
+					
+			warn(player.Name,"successfully filed report: " .. ID)
+			wait(math.random(10,100) / 100)
+			return true,ID
+		end
+	end
+
+	function playerDataBase:AddBounty(num,isCmd)
+		if not tonumber(num) then return end
+		num = tonumber(num)
+		--num = math.max(num,0)
+		num = math.min(num,100000)
+		
+		if not isCmd and ReplicatedStorage.Values.NoBounties.Value then
+			return
+		end
+		
+		local orig = moneyData.Bounty
+		local setNum = orig + num
+		
+		if not isCmd then
+			if setNum > GameSettings.MaxBounty and orig <= GameSettings.MaxBounty then
+				setNum = GameSettings.MaxBounty
+			end
+		end
+		
+		moneyData.Bounty = math.min(setNum,50000)
+		moneyData.Bounty = math.floor(math.max(moneyData.Bounty,0))
+
+		--Events.GotBounty:FireClient(player,num)
+
+		playerDataBase:AlertBounty()
+
+		UpdateStats(true,false,"bounty")
+	end
+	
+	function playerDataBase:DoKillHeal(perc)
+		local char = player.Character
+		local hum = char and char:FindFirstChild("Humanoid")
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if char and hum and hum.Health > 0 and not _G.DownedCheck(char) then
+			local AMH = hum.MaxHealth - 14.99
+			local AH = hum.Health
+
+			local H = AH
+
+			local calc
+
+			calc = (H - 14.99) / hum.MaxHealth
+			calc = 1 - calc
+
+			H = Lerp(0,hum.MaxHealth,calc)
+			H = H * perc 
+
+			H = math.floor(H)
+
+			H = math.max(H,0)
+
+			local s = script.XP_Sound:Clone()
+			local p = script.XP_Particle:Clone()
+			game.Debris:AddItem(s,3)
+			game.Debris:AddItem(p,3)
+
+			s.Parent = root
+			p.Parent = root
+
+			s:Play()
+			p:Emit(20)
+
+			hum.Health = hum.Health + H
+		end
+	end
+
+	function playerDataBase:Replicate(mode,doSound)
+		--print(DDBNTY)
+		if not mode then
+			mode = "all"
+		end
+
+		local d = {}
+		
+		if mode == "all" or string.find(mode,"money") then
+			d.bank = pd.Bank.Value
+			d.cash = pd.Cash.Value
+		end
+		
+		if mode == "all" or string.find(mode,"bounty") then
+			d.bounty = moneyData.Bounty
+		end
+		
+		if mode == "all" or string.find(mode,"level") then
+			if levelData then
+				d.levelData = {
+					["Level"] = levelData.Level;
+					["MaxXP"] = levelData.MaxXP;
+					["XP"] = levelData.XP;
+				}
+			end
+		end
+
+		if mode == "all" or string.find(mode,"unlocked") then
+			d.unlocked = playerData.Unlocked
+		end
+		
+		if mode == "all" or string.find(mode,"prime") then
+			d.prime = plrHasPrime
+
+			d.MinBountyToKill = ServerStorage.Values.MinBountyToKill.Value
+			d.DDBNTY = DDBNTY
+		end
+		
+		if mode == "all" or string.find(mode,"cosmetics") then
+			local cosmeticData,equippedCosmeticData = SkinsHandlerM.GetClientCosmeticList(player,deepCopy(playerData.Cosmetics),deepCopy(playerData.EquippedCosmetics))
+			d.cosmeticData = cosmeticData
+			d.equippedCosmeticData = equippedCosmeticData
+		end
+		
+		if mode == "all" then
+			d.cosmeticStoreData = SkinsHandlerM.GetClientCosmeticStoreData()
+		end
+		
+		if mode == "all" or string.find(mode,"cosmetics_invlimit") then
+			d.cosmeticInventoryLimits = {
+				Cases = SkinsHandlerM.GetInventoryLimit("Case",player,deepCopy(playerData));
+				Skins = SkinsHandlerM.GetInventoryLimit("Skin",player,deepCopy(playerData));
+			};
+		end
+		
+		Events.UpdateClient:FireClient(player,d,doSound)		
+	end
+
+	function playerDataBase:UnlockTool(found,amountSpent)
+		local fName = ""
+		if typeof(found) == "string" then
+			fName = found
+		else
+			fName = found.Name
+		end
+
+		if not pd.Unlocked:FindFirstChild(fName) then
+			local b = Instance.new("BoolValue")
+			b.Name = fName
+			b.Parent = pd.Unlocked
+		end
+
+		local got = false
+		for _,v in pairs(playerData.Unlocked) do
+			if v == fName then
+				got = true
+				break
+			end
+		end
+
+		if not got then
+			table.insert(playerData.Unlocked,fName)
+		end
+		
+		if not playerData.ShopUnlockHistory then
+			playerData.ShopUnlockHistory = {}
+		end
+		
+		local t = {
+			StartTick = os.time();
+			Name = fName;
+			AmountSpent = amountSpent;
+			--GameVersion = ReplicatedStorage.Values.VersionNumber.Value;
+		}
+		table.insert(playerData.ShopUnlockHistory,t)
+		
+		print(playerData)
+
+		UpdateStats(true,nil,"unlocked")
+
+		--print("UNLOCKED")
+	end
+	
+	function playerDataBase:GetEquippedItemSkin(itemName)
+		if typeof(itemName) ~= "string" then return end
+		
+		local id = playerData.EquippedCosmetics.Skins[SkinsHandlerM.SharedItemNameCheck(itemName)]
+		if id then
+			local got
+			for i,v in pairs(playerData.Cosmetics.Skins) do
+				if i == id then
+					got = v
+					break
+				end
+			end
+			return got and got.skinName, id
+		end
+	end
+	
+	function playerDataBase:EquipCosmetic(cosmeticType,cosmeticID)
+		if cosmeticType == "Skins" then
+			local got = false
+			for i,v in pairs(playerData.Cosmetics.Skins) do
+				if i == cosmeticID then
+					got = v
+					break
+				end
+			end
+			if got then
+				local skinData = SkinsHandlerM.GetSkinDataFromName(got.skinName)
+				if skinData then
+					if playerData.EquippedCosmetics.Skins[skinData.ItemName] == cosmeticID then
+						playerData.EquippedCosmetics.Skins[skinData.ItemName] = nil
+					else
+						playerData.EquippedCosmetics.Skins[skinData.ItemName] = cosmeticID
+						
+						playerDataBase:ClearJustObtainedTag("Skin",cosmeticID)
+					end
+					
+					playerDataBase:Replicate("cosmetics",false)
+					
+					return playerData.EquippedCosmetics
+				end
+			end
+		end
+	end
+	
+	function playerDataBase:GrantCase(caseData,amount,obtainType,giftPurchaseData,modData)
+		if not obtainType then obtainType = "N/A" end
+		if typeof(caseData) ~= "table" then return end
+		local caseName = tostring(caseData.caseName)
+		
+		if not SkinsHandlerM.GetCaseDataFromCaseName(caseName) then
+			return
+		end
+		
+		if not amount then
+			amount = 1
+		end
+		--local logResult = logRemote:Invoke(CLHSECKEY,"CosmeticLog",player.Name,"Gift-Purchased: " .. productName,playerProductKey,receiptInfo.CurrencySpent,activeGiftData.targetPlr.Name,giftProductTab[2])
+		
+		local caseIds = {}
+		
+		if not playerData.OtherStats.CasesPurchased then
+			playerData.OtherStats.CasesPurchased = {}
+		end
+		if not playerData.OtherStats.CasesPurchased[caseName] then
+			playerData.OtherStats.CasesPurchased[caseName] = 0
+		end
+		
+		for i = 1,amount do
+			local caseId = SkinsHandlerM.GetGeneratedId("case")
+			
+			local data = deepCopy(caseData)
+			
+			data.justObtained = true
+			
+			data.obtainType = obtainType
+			
+			if giftPurchaseData then
+				data.giftPurchaseData = deepCopy(giftPurchaseData)
+			end
+			
+			playerData.Cosmetics.Cases[caseId] = data
+			
+			table.insert(caseIds,caseId)
+		end
+		
+		local stringCaseId = ""
+		for i,v in pairs(caseIds) do
+			stringCaseId ..= v
+			if i < #caseIds then
+				stringCaseId ..= "\n"
+			end
+		end
+		
+		--------------------------------
+		local caseCreateData = {
+			--{"Log","Case created: " .. tostring(caseData.caseName)};
+			{"User",player.Name .. " | " .. player.UserId};
+			{"CaseIds",stringCaseId};
+			{"ObtainType",tostring(obtainType)};
+			{"Amount",tostring(amount)};
+		}
+		
+
+		local desc = "Case(s) created: " .. tostring(caseData.caseName)
+		local log = "Cosmetics_CasePurchased"
+		local title = "CASE-PURCHASED"
+		
+		local function Log()
+			if not ReplicatedStorage.Values.DataSaving.Value then
+				return true
+			end
+			return SkinsHandlerM.DoLog(log,player,title,desc,caseCreateData,(modData and "red") or nil)
+		end
+		
+		if not string.find(obtainType,"purchase") then
+			if string.find(obtainType,"spawn") then
+				log = "Cosmetics_CaseSpawned"
+				title = "CASE-SPAWNED"
+				
+				if modData then
+					table.insert(caseCreateData,2,{"Mod",modData.Name .. " | " .. modData.UserId})
+				end
+			else
+				log = "Cosmetics_CaseCreated"
+				title = "CASE-CREATED"
+			end
+			
+			if not Log() and obtainType ~= "daily_login" then
+				return
+			end
+		end
+		
+		--if #caseIds > 1 then
+		--	caseCreateData[1] = nil
+		--	desc = desc .. "\n\nCaseIds:\n" .. stringCaseId
+		--end
+		
+		if giftPurchaseData then
+			if giftPurchaseData.playerProductKey then
+				table.insert(caseCreateData,{"PlayerProductKey",tostring(giftPurchaseData.playerProductKey)})
+			end
+		end
+		
+		if obtainType == "purchase" then
+			playerData.OtherStats.CasesPurchased[caseName] += amount
+		end
+		
+		playerDataBase.DoFasterAutoSave = true
+		--------------------------------
+		
+		playerDataBase:Replicate("cosmetics",false)
+		
+		if string.find(obtainType,"purchase") then
+			Log()
+		end
+		
+		return true
+	end
+
+	local debounces = {}
+	
+	function playerDataBase:Debounce_Check(name)
+		return debounces[name]
+	end
+	function playerDataBase:Debounce_Add(name,tim)
+		tim = tim or 5
+		
+		local c = math.random()
+		
+		debounces[name] = c
+		
+		task.delay(tim,function()
+			if debounces[name] == c then
+				debounces[name] = nil
+			end
+		end)
+	end
+	
+	function playerDataBase:CosmeticSellCheck(typ,idList,doFullSell)
+		if not ReplicatedStorage.Values.DataSaving.Value or ReplicatedStorage.Values.IsVipServer.Value then
+			return
+		end
+		
+		assert(typ == "skin","typ is not 'skin'")
+		
+		assert(typeof(idList) == "table","idList is not a table")
+		
+		local idListCount = 0
+		for i,v in pairs(idList) do
+			idListCount += 1
+		end
+		assert(idListCount <= SkinsHandlerM.CONFIG.MaxMassSell,"Too many entries in idList",tostring(idListCount))
+		assert(idListCount > 0,"Too few entries in idList",tostring(idListCount))
+		
+		local dir
+		if typ == "skin" then
+			dir = playerData.Cosmetics.Skins
+		end
+		
+		assert(dir,"no dir found!")
+		
+		for i,v in pairs(idList) do
+			if typeof(i) ~= "number" then
+				error("idList i is incorrect #54894")
+			elseif not dir[v] then
+				error("No id for",i,"found in directory!")
+			end
+		end
+		
+		local sellTable = {}
+		local displayName = "N/A"
+		
+		for i,id in pairs(idList) do
+			local plrItemData = dir[id]
+			assert(plrItemData,"id not found in dir")
+
+			local itemData = typ == "skin" and SkinsHandlerM.GetSkinDataFromName(plrItemData.skinName)
+
+			assert(itemData,"no skin item data found for",plrItemData.skinName)
+
+			if plrItemData.SellLocked then
+				error("Item is sell locked!")
+			end
+			
+			local skinSellData = SkinsHandlerM.GetSkinSellData(plrItemData.skinName)
+			if not skinSellData or not skinSellData.Price then
+				error("No skinselldata!")
+			end
+			
+			displayName = itemData.DisplayName
+			if not displayName then
+				displayName = "N/A"
+			else
+				displayName = "'" .. displayName .. "'"
+			end
+			
+			table.insert(sellTable,{id,skinSellData,itemData,plrItemData})
+		end
+		
+		if doFullSell then
+			if not playerData.OtherStats.CosmeticsSold then
+				playerData.OtherStats.CosmeticsSold = 0
+			end
+			if not playerData.OtherStats.CosmeticsSoldValue then
+				playerData.OtherStats.CosmeticsSoldValue = 0
+			end
+			
+			local totalSellPrice = 0
+			local sellIds = {}
+			
+			for i,v in pairs(sellTable) do
+				local id,skinSellData,itemData = v[1],v[2],v[3]
+				
+				totalSellPrice += skinSellData.Price
+			end
+			
+			if totalSellPrice >= 3000000 then
+				return
+			end
+			
+			local sellPriceText =  "$" .. addComas(totalSellPrice)
+			
+			local function DoLog()
+				if not ReplicatedStorage.Values.DataSaving.Value then
+					return true
+				end
+				local logData = {
+					--{"Log","Case created: " .. tostring(caseData.caseName)};
+					{"User",player.Name .. " | " .. player.UserId};
+					{"TotalSellPrice",sellPriceText};
+					--{"SkinName",plrItemData.skinName .. " | '" .. tostring(itemData.DisplayName) .. "'"};
+					--{"SkinId",id};
+					{"OsTime",os.time()}
+				}
+				
+				local skinNameThing = ""
+				
+				local log = "Cosmetics_ItemSold"
+				
+				for i,v in pairs(sellTable) do
+					local id,skinSellData,itemData,plrItemData = v[1],v[2],v[3],v[4]
+					
+					skinNameThing = skinNameThing .. id .. " [ " .. plrItemData.skinName .." | " .. "$" .. addComas(skinSellData.Price) .. " ]"
+					
+					if i < #sellTable then
+						skinNameThing = skinNameThing .. "\n"
+					end
+					
+					if itemData and (itemData.Rarity == "rare" or itemData.Rarity == "legendary" or itemData.Rarity == "limited") then
+						log = "Cosmetics_ItemSold2"
+					end
+				end
+				
+				table.insert(logData,3,{"SkinData",skinNameThing})
+				
+				if idListCount > 1 then
+					table.insert(logData,4,{"Amount",tostring(idListCount)})
+				end
+				
+
+				local desc = nil
+
+				return SkinsHandlerM.DoLog(log,player,"COSMETICS-SOLD",desc,logData)
+			end
+
+			if not DoLog() then
+				return
+			end
+			
+			for i,v in pairs(sellTable) do
+				local id,skinSellData,itemData,plrItemData = v[1],v[2],v[3],v[4]
+				playerData.OtherStats.CosmeticsSold += 1
+				
+				dir[id] = nil
+			end
+	
+	
+			playerData.OtherStats.CosmeticsSoldValue += totalSellPrice
+			playerDataBase:AddMoney("Bank",totalSellPrice)
+
+			playerDataBase:Replicate("cosmetics",false)
+
+			local tab = {
+				Title = "Sell Complete";
+				Text = "Successfully sold " .. displayName .. " for " .. sellPriceText;
+				Duration = 60;
+				Button1 = "Close";
+			}
+			
+			if #sellTable > 1 then
+				tab.Text = "Successfully mass-sold skins for " .. sellPriceText
+			end
+			
+			Events.Notification:FireClient(player,tab,"purchase")
+			
+			return true
+		else
+			local returnSellData = {}
+			
+			returnSellData.Price = 0
+			
+			for i,v in pairs(sellTable) do
+				local id,skinSellData,itemData = v[1],v[2],v[3]
+				
+				--table.insert(returnSellData,{id,skinSellData})
+				
+				returnSellData.Price += skinSellData.Price
+			end
+			
+			return returnSellData
+		end
+	end
+	
+	function playerDataBase:GrantSkin(skinName,obtainType,caseData,modData,IsKilltrack)
+		local res1,res2
+		local _s,_e = pcall(function()
+			local skinData = SkinsHandlerM.GetSkinDataFromName(skinName)
+
+			if not skinData then error("no skin data",skinName) end
+			
+			local skinId = SkinsHandlerM.GetGeneratedId("skin")
+
+			if not obtainType then obtainType = "n/a" end
+			
+			if not IsKilltrack then
+				IsKilltrack = false
+			end
+
+			local unboxData = {
+				KilltrackCT = 0;
+				Killtrack = IsKilltrack;
+				skinName = skinName;
+				lastObtainTick = os.time();
+				creationTick = os.time();
+			}
+
+			unboxData.justObtained = true;
+			unboxData.obtainType = obtainType
+			
+			if string.find(obtainType,"spawn") then
+				unboxData.wasSpawned = true
+			end
+
+			if obtainType == "case" and caseData then
+				unboxData.obtainCase = tostring(caseData.caseName)
+			end
+			
+			if skinData.Rarity == "limited" and not string.find(obtainType,"spawn") then
+				print("LIMITED UNBOXED YOOO")
+			end
+			
+			if skinData.Rarity == "exotic" and not string.find(obtainType,"spawn") then
+				print("EXOTIC UNBOXED YOOO")
+			end
+
+			playerData.Cosmetics.Skins[skinId] = unboxData
+
+			playerDataBase:Replicate("cosmetics",false)
+
+			warn("Spawned in skin",tostring(player),unboxData.skinName)
+
+			res1,res2 = deepCopy(unboxData),skinData.DisplayName
+			return true
+		end)
+		
+		if _s then
+			playerDataBase.DoFasterAutoSave = true
+			
+			return res1,res2
+		else
+			warn("GrantSkinFunc Error",tostring(player),_e)
+		end
+	end
+	
+	function playerDataBase:AddRobuxSpent(amount)
+		if typeof(amount) ~= "number" then return end
+		
+		amount = math.round(amount)
+
+		playerData.OtherStats.RobuxSpent += amount
+		
+		UpdateStats(false,false,false)
+	end
+	
+	function playerDataBase:OpenCase(caseId)
+		if not ReplicatedStorage.Values.DataSaving.Value or ReplicatedStorage.Values.IsVipServer.Value then
+			return
+		end
+		
+		local caseData = playerData.Cosmetics.Cases[caseId]
+		
+		if not caseData then
+			return
+		end
+		
+		if not playerData.OtherStats.CasesOpened then
+			playerData.OtherStats.CasesOpened = {}
+		end
+		if not playerData.OtherStats.CasesOpened[caseData.caseName] then
+			playerData.OtherStats.CasesOpened[caseData.caseName] = 0
+		end
+		
+		local gotCaseData = SkinsHandlerM.GetCaseDataFromCaseName(caseData.caseName)
+		
+		if gotCaseData.CaseType == "Skin" then
+
+			local invFull,invMax = SkinsHandlerM.CheckInventoryLimit("Skin",player,deepCopy(playerData),true)	
+			if invFull then
+				return false
+			end
+			
+			local gotSkinName = SkinsHandlerM.GetSkinUnboxData(player,caseData.caseName,caseData,true)
+			local skinData_293 = SkinsHandlerM.GetSkinDataFromName(gotSkinName)
+
+			if gotSkinName then
+				local caseData2 = deepCopy(caseData)
+				caseData2.caseId = caseId
+				
+				local IsKilltrack = false
+				
+				local itemName1 = skinData_293.ItemName
+				
+				if _G.KilltrackChance <= 1 and itemName1 ~= "Shiv" and itemName1 ~= "Balisong" and itemName1 ~= "BBaton" and itemName1 ~= "Scout" and itemName1 ~= "RPG-7" and itemName1 ~= "Sledgehammer" then
+					IsKilltrack = true
+				else
+					local Chance = math.floor(_G.KilltrackChance)
+					
+					if math.random(Chance) == 1 and itemName1 ~= "Shiv" and itemName1 ~= "Balisong" and itemName1 ~= "BBaton" and itemName1 ~= "Scout" and itemName1 ~= "RPG-7" and itemName1 ~= "Sledgehammer" then
+						IsKilltrack = true
+					end
+				end
+				
+				local result,displayName = playerDataBase:GrantSkin(gotSkinName,"case",caseData2, nil, IsKilltrack)
+
+				if result then
+					playerData.Cosmetics.Cases[caseId] = nil
+					
+					playerData.OtherStats.CasesOpened[caseData.caseName] += 1
+
+					playerDataBase:Replicate("cosmetics",false)
+					
+					local _s,_e = pcall(function()
+						SkinsHandlerM.DoSkinUnboxVisuals(player,gotSkinName,result,caseData,IsKilltrack)
+					end)
+					
+					playerDataBase.DoFasterAutoSave = true
+					
+					task.spawn(function()
+						local d = SkinsHandlerM.GetSkinDataFromName(gotSkinName)
+						
+						if d.Rarity == "rare" or d.Rarity == "legendary" or d.Rarity == "limited" or d.Rarity == "exotic" then
+							playerDataBase:DoSave(false,true,false)
+						end
+					end)
+
+					warn(tostring(player),"unboxed",tostring(result.skinName))
+
+					if not _s then
+						warn("DoSkinVisualsError:",_e)
+					end
+					
+					UpdateStats(false,false,false)
+					
+					return true
+				end
+			end
+		end
+	end
+	
+	function playerDataBase:ClearJustObtainedTag(typ,id)
+		local dir
+		if typ == "Case" then
+			dir = playerData.Cosmetics.Cases
+		elseif typ == "Skin" then
+			dir = playerData.Cosmetics.Skins
+		end
+		
+		assert(dir,"no dir found for",typ,player)
+		assert(dir[id],"no id found in dir",typ,id,player)
+
+		if dir[id].justObtained then
+			dir[id].justObtained = nil
+			playerDataBase:Replicate("cosmetics",false)
+		end
+
+		return true
+	end
+	
+	function playerDataBase:AttemptRedeem(code)
+		if not code then return end
+		code = tostring(code)
+
+		local gotCode,hasExpired = nil,nil
+		local redeemed = false
+
+
+		if ReplicatedStorage.Values.IsVipServer.Value then
+			return false,"CAN'T REDEEM IN VIP SERVERS"
+		end
+
+		for i,v in pairs(playerData.RedeemedCodes) do
+			if v == code then
+				redeemed = true
+				break
+			end
+		end
+
+		if redeemed then
+			return false,"ALREADY REDEEMED!"
+		else
+			gotCode,hasExpired = TwitterCodesHandler:GetCode(code)
+
+			if not gotCode then
+				return false,(hasExpired and "CODE EXPIRED!") or "INVALID CODE!"
+			end
+
+			for i,v in pairs(gotCode) do
+				local cType = v[1]
+				local cAmt = v[2]
+
+				if cType == "money" then
+					playerDataBase:AddMoney("Bank",math.min(cAmt,20000))
+
+					local tab = {
+						Title = "Code Redeemed";
+						Text = "Successfully redeemed $" .. tostring(cAmt) .. "!";
+						--Icon = "";
+						Duration = 30;
+						Button1 = "Close";
+					}
+					ReplicatedStorage.Events.Notification:FireClient(player,tab,"change")	
+
+				elseif cType == "doublexp" then
+					playerDataBase:DoubleXP(true,cAmt)
+
+					local tab = {
+						Title = "Code Redeemed";
+						Text = "Successfully redeemed double xp!";
+						--Icon = "";
+						Duration = 30;
+						Button1 = "Close";
+					}
+					ReplicatedStorage.Events.Notification:FireClient(player,tab,"change")	
+				end
+			end
+
+			warn(player,"REDEEMED CODE",code)
+
+			table.insert(playerData.RedeemedCodes,code)
+
+			UpdateStats(false,false)
+
+			return true,"SUCCESSFULLY REDEMEED!"
+		end
+	end
+	
+	function playerDataBase:GetKillXP(multi)
+		local mLvl = levelData.Level
+
+		--local amt = GetKillXPM(GameSettings.KillXP_Min,levelData.Level)
+		local amt = Lerp(GameSettings.KillXP_Min,GameSettings.KillXP_Max,math.min(levelData.Level,100) / 100)
+		
+		amt = amt * (multi or 1)
+		
+		amt = Round(amt,5)
+		amt = math.min(amt,GameSettings.KillXP_Max)
+		amt = amt * ServerStorage.Values.KillXPMulti.Value
+		amt = math.min(amt,400)
+		
+		return amt
+	end
+	
+	function playerDataBase:GetKillCash(multi)
+		local mLvl = levelData.Level
+
+		--local amt = GetKillXPM(GameSettings.KillXP_Min,levelData.Level)
+		local amt = Lerp(GameSettings.KillCash_Min,GameSettings.KillCash_Max,math.min(levelData.Level,100) / 100)
+
+		amt = amt * (multi or 1)
+
+		amt = Round(amt,5)
+		amt = math.min(amt,GameSettings.KillCash_Max)
+		amt = amt * ServerStorage.Values.KillCashMulti.Value
+		amt = math.min(amt,1000)
+
+		return amt
+	end
+
+	local leavingCON
+	local shutdownCON
+	local CON_save = false
+	local LEAVING_GAME = false
+	
+	local LEAVEDATA_BoughtItems,LEAVEDATA_pSpends = nil,0
+	
+	local altFarmLogs = {
+		cache = {};
+		logs = {};
+		timesHappened = 0;
+	};
+	
+	local function DO_ALT_FARM_LOG()
+		local dataFolder = PlayerbaseData:FindFirstChild(player.Name)
+		if dataFolder then
+			local level = dataFolder.Level.Value
+			local hasPrime = dataFolder.Prime.Value
+
+			local title = "" -- "Potential safe TP farming"
+			local fullText = ""
+
+			fullText ..= "Prime: " .. tostring(hasPrime)
+			fullText ..= "\n"
+			fullText ..= "Level: " .. tostring(level)
+			fullText ..= "\n\n"
+
+			for i,v in pairs(altFarmLogs.logs) do
+				local text = "--LOG #" .. i .. "--"
+				text ..= "\n"
+				text ..= "KILLED: " .. v.killedPlr.Name .. " | " .. v.killedPlr.UserId
+				text ..= "\n"
+				text ..= "WEAPON: " .. v.weaponName
+				text ..= "\n"
+				text ..= "TIME TAKEN: " .. v.timeDifference .. "s"
+				text ..= "\n"
+				text ..= "KILLER DISTANCE: " .. v.killerDistance .. " studs"
+				text ..= "\n"
+				text ..=  "VICTIM DISTANCE: " .. tostring(v.victimDistance) .. " studs"
+				text ..= "\n"
+				text ..= "TIMESTAMP: " .. v.timeStamp
+
+				if i < #altFarmLogs.logs then
+					text ..= "\n\n"
+				end
+
+				fullText ..= text
+			end
+
+			local l_success = logRemote:Invoke(CLHSECKEY,"ExploitLog",player.Name,"AKF-LOG",title,fullText,"AltKillFarm")
+		end
+	end
+	
+	function playerDataBase:CheckIfAltFarmKill(killedPlr,killedPlayerPos,weaponName) -- will do this in the diedhandler func
+		local MAX_KILLER_DISTANCE = 15 -- killer doesnt move more than 10 studs
+		local MAX_VICTIM_DISTANCE = 15 -- victim is within 15 studs from killer
+		local MAX_TIME_DIFF = 60; -- ignore if happens after 30 seconds from other cached result
+		local MIN_TIMES_HAPPENED_TO_LOG = 3; -- will add to log table if happens more than this times
+		
+		local CLEAR_AFTER_TIME = 300;
+		
+		--print(killedPlr,killedPlayerPos,weaponName)
+		
+		--print(111)
+		
+		if not killedPlayerPos then
+			return
+		end
+		
+		--print(222)
+		local killPos = player.Character and player.Character.PrimaryPart and player.Character.PrimaryPart.Position
+		if not killPos then
+			return
+		end
+		--print(333)
+		if player.Character:GetAttribute("HUCMV") then
+			return
+		end
+		if not ReplicatedStorage.Values.DataSaving.Value then
+			return
+		end
+		--print(444)
+		if killedPlr == player then
+			return
+		end
+		--print(555)
+		
+		local result = {
+			char = player.Character;
+			startPos = killPos;
+			killedPos = killedPlayerPos or "N/A";
+			killedPlr = killedPlr;
+			tim = time();
+		};
+		
+		for i,v in pairs(altFarmLogs.cache) do
+			if v.char ~= result.char then
+				altFarmLogs.cache = {}
+				altFarmLogs.timesHappened = 0
+			elseif result.tim - v.tim > CLEAR_AFTER_TIME then
+				table.remove(altFarmLogs.cache,i)
+			end
+		end
+
+		for i,v in pairs(altFarmLogs.cache) do
+			local killerMagnitude = math.round((v.startPos - result.startPos).Magnitude * 100) / 100
+			
+			local victimMagitude
+			if not killedPlayerPos then
+				victimMagitude = true
+			else
+				victimMagitude = math.round((result.startPos - killedPlayerPos).Magnitude * 100) / 100
+				--victimMagitude = victimMagitude <= MAX_VICTIM_DISTANCE
+			end
+			
+			local timeDis = math.floor(result.tim - v.tim)
+			
+			--print(timeDis < MAX_TIME_DIFF,
+			--	killerMagnitude <= MAX_KILLER_DISTANCE,
+			--	victimMagitude <= MAX_VICTIM_DISTANCE
+			--)
+			
+			--print(v.killedPlr == result.killedPlr, timeDis < MAX_TIME_DIFF, killerMagnitude <= MAX_KILLER_DISTANCE, victimMagitude <= MAX_VICTIM_DISTANCE)
+			if 
+				v.killedPlr == result.killedPlr 
+				and timeDis < MAX_TIME_DIFF 
+				and killerMagnitude <= MAX_KILLER_DISTANCE 
+				--and victimMagitude 
+			then
+				
+				altFarmLogs.timesHappened += 1
+				
+				--print("yep, added to table",altFarmLogs.timesHappened)
+				
+				--print(altFarmLogs.timesHappened)
+				
+				if altFarmLogs.timesHappened >= MIN_TIMES_HAPPENED_TO_LOG then
+					weaponName = weaponName or "N/A"
+					
+					local log = {
+						tim = math.floor(time());
+						timeStamp = os.date("%X");
+						
+						weaponName = weaponName;
+						killedPlr = result.killedPlr;
+						killerDistance = killerMagnitude;
+						victimDistance = victimMagitude;
+						timeDifference = timeDis;
+					}
+
+					altFarmLogs.cache = {}
+
+					table.insert(altFarmLogs.logs,log)
+					
+					warn("SERVERLOG: " .. "Added AFK Log for: " .. tostring(player.Name))
+
+					--print("yeah thats getting logged lol..")
+				end
+				
+				
+				
+				break
+			end
+		end
+
+		table.insert(altFarmLogs.cache,result)
+	end
+
+	local function SaveTing(x)
+		if CON_save then return end
+		CON_save = true
+
+		if x == true and _G.InCombatCheck(player,true) then
+			--DiedHandler(true)
+		elseif not x then
+			--print("OO SHUTDOWNTIME 1")
+		end	
+	end
+
+	leavingCON = player.AncestryChanged:Connect(function()
+		if player:IsDescendantOf(game) then return end
+		leavingCON:Disconnect()	
+		
+		LEAVING_GAME = true
+		
+		LEAVEDATA_BoughtItems,LEAVEDATA_pSpends =  Events3.GetShopData:Invoke(player)
+		
+		if altFarmLogs and #altFarmLogs.logs > 0 then
+			DO_ALT_FARM_LOG()
+		end
+		--SaveTing(true)
+	end)
+
+	shutdownCON = Events3.SHDWN.Event:Connect(function()
+		leavingCON:Disconnect()
+		shutdownCON:Disconnect()
+		--SaveTing()
+	end)
+	
+	local function player_BeforeSave(deserialized,wasAuto)
+		--if d1 then return deserialized end
+		--d1 = true
+
+		local serialized = deserialized
+
+		if not SANITY_CHECK(pd,player) then
+			return serialized
+		end
+		
+		--print(player,1,leftInCombat)
+
+		if ReplicatedStorage.Values.ShuttingDown.Value or wasAuto then
+			leftInCombat = false
+		elseif _G.InCombatCheck(player,true) or not plrAlive then
+			local _s,_e = pcall(function()
+				DiedHandler(true)
+			end)
+			if not _s then
+				warn("DiedHandlerError_PlayerBeforeSave",tostring(player),_e)
+			end
+		else
+			leftInCombat = false
+		end
+		
+		--print(player,2,leftInCombat)
+		--serialized.TimePlayed = UpdateTimePlayed()
+
+		local boughtTools,pSpends
+		
+		if LEAVEDATA_BoughtItems then
+			boughtTools,pSpends = LEAVEDATA_BoughtItems,LEAVEDATA_pSpends
+		else
+			boughtTools,pSpends = Events3.GetShopData:Invoke(player)
+		end
+		
+		if typeof(boughtTools) ~= "table" then
+			warn("WARNING: bought tools not a table!")
+			boughtTools = {}
+		end
+
+		local function cframeToTable(cf)
+			return {cf:GetComponents()};
+		end
+
+		if pd:FindFirstChild("EquippedLoadout") then
+			if plrAlive
+				--and not leftInCombat 
+			then
+				local vF = _G.GVF(player.Name)
+				if leftInCombat then
+
+					DiedHandler(true)
+
+					--print(player,"YEP U COMBBAT LOGGED",lostCash,lostBank)
+					serialized.TempData.CombatLog = true
+					serialized.TempData.CombatLogLoss_Money = (lostCash + lostBank)
+
+					local n = 0
+					for i,v in pairs(boughtTools) do
+						n = n + 1
+					end
+
+					serialized.TempData.LeaveStats = deepCopy(defaultPlayerData.TempData.LeaveStats)
+
+					serialized.TempData.CombatLogLoss_Items = n
+				else
+					
+					--pcall(function()
+					local n = 0
+					for i,v in pairs(boughtTools) do
+						n = n + 1
+					end
+					serialized.TempData.LeaveStats.Tools = boughtTools
+					serialized.TempData.LeaveStats.LifeSpends = pSpends
+					
+
+					--print("2:SPENDS",pSpends)
+					--end
+
+					--print("SAVED")
+
+					serialized.TempData.LeaveStats.GaveStarterGear = true
+
+					local cf = nil
+					if lastHRP and lastHRP.CFrame then
+						cf = lastHRP.CFrame
+					end
+					serialized.TempData.LeaveStats.LeaveCF = cframeToTable(cf)
+					serialized.TempData.LeaveStats.HP = lastHP
+
+					if vF then
+						for i,v in pairs(vF.HealthValues:GetChildren()) do
+							if serialized.TempData.LeaveStats.LimbStats[v.Name] ~= nil then
+
+								serialized.TempData.LeaveStats.LimbStats[v.Name].Broken =	v.Broken.Value
+								serialized.TempData.LeaveStats.LimbStats[v.Name].Destroyed = v.Destroyed.Value
+
+								serialized.TempData.LeaveStats.LimbStats[v.Name].HP = (v.Destroyed.Value and 0) or v.Value
+							end
+						end
+					end
+				end
+			else
+				serialized.TempData.LeaveStats = deepCopy(defaultPlayerData.TempData.LeaveStats)
+			end
+		end
+		
+		--pcall(function()
+		--	Events3.ClearPlayerBTools:Fire(player)
+		--end)
+		--print(serialized.TempData.LeaveStats)
+
+		return serialized	
+	end
+
+	local function money_BeforeSave(deserialized,wasAuto)
+		--if d3 then return deserialized end
+		--d3 = true
+
+		local serialized = deserialized
+
+		if not SANITY_CHECK(pd,player) then
+			return deserialized
+		end
+
+		if ReplicatedStorage.Values.ShuttingDown.Value or wasAuto then
+			leftInCombat = false
+		elseif _G.InCombatCheck(player,true) or not plrAlive then
+			local _s,_e = pcall(function()
+				DiedHandler(true)
+			end)
+			if not _s then
+				warn("DiedHandlerError_PlayerBeforeSave",tostring(player),_e)
+			end
+		else
+			leftInCombat = false
+		end
+		
+		serialized = deepCopy(moneyData)
+
+		--if plrAlive and leftInCombat then
+		--	if typeof(lostCash) ~= "number" then
+		--		lostCash = 0
+		--	end
+		--	if typeof(lostBank) ~= "number" then
+		--		lostBank = 0
+		--	end
+
+		--	serialized.Cash = serialized.Cash - lostCash
+		--	serialized.Bank = serialized.Bank - lostBank
+
+		--	local vf = _G.GVF(player.Name)
+
+		--	if vf and vf.Tags:FindFirstChild("creator") then
+		--		serialized.Bounty = 0
+		--	end
+		--end
+
+		return serialized		
+	end
+	
+	local function level_BeforeSave(deserialized,wasAuto)
+		--if d4 then return deserialized end
+		--d4 = true
+
+		local serialized = deserialized
+
+		if not SANITY_CHECK(pd,player) then
+			return deserialized
+		end
+
+		local pd2 = PlayerbaseData2:FindFirstChild(player.Name)
+		if pd2 then
+			if not GameSettings.PermDoubleXP then
+				if pd2.DoubleXP.Value and pd2.DoubleXP.Timer.Value > 0 then
+					serialized.DoubleXP = true
+					serialized.DoubleXP_Time = pd2.DoubleXP.Timer.Value
+				else
+					serialized.DoubleXP = false
+					serialized.DoubleXP_Time = 0	
+				end
+			end
+		end
+
+		return serialized	
+	end
+
+	--if player.UserId == 1528826097
+	--	--or player:IsFriendsWith(1568070703) 
+	--then
+	--	if toolsStorage:FindFirstChild("RCU_Armour2") then
+	--		toolsStorage.RCU_Armour2:Clone().Parent = player.StarterGear
+	--	end
+	--end
+	
+	if isDSaving() then
+		playerStore:BeforeSave(player_BeforeSave)
+		moneyStore:BeforeSave(money_BeforeSave)
+		levelStore:BeforeSave(level_BeforeSave)
+	end
+
+	pd2.NextAllowance.Value = GameSettings.AllowanceTime * 60
+
+	for _,v in pairs(pd:GetChildren()) do
+		if v:IsA("ValueBase") and (v.Name ~= "TimePlayed" and v.Name ~= "Level" and v.Name ~= "XP") then
+			v:GetPropertyChangedSignal("Value"):Connect(function()
+				UpdateStats(false)
+			end)
+		end
+	end
+
+	pd.Parent = PlayerbaseData
+	pd2.Parent = PlayerbaseData2
+	
+	player:SetAttribute("LD1",true)
+
+	local fS = true
+	local lostMoney = 0
+	
+	local _GGPDB = false
+	local _GGPDB_C = 0
+	
+	local _GGPDB2 = false
+	local _GGPDB_C2 = 0
+	
+	function playerDataBase:GetGamepasses(x)
+		local t = {}
+		for _,v in pairs(pd.Gamepasses:GetChildren()) do
+			table.insert(t,v.Name)
+		end
+		
+		if not _GGPDB or x then
+			coroutine.wrap(function()
+				if not pd2.Loaded.Value then
+					pd2.Loaded:GetPropertyChangedSignal("Value"):Wait()
+				end
+				Events.GetGamepasses:FireClient(player,t)
+			end)()
+		end
+		
+		_GGPDB = true
+		local c = math.random()
+		_GGPDB_C = c
+		task.delay(3,function()
+			if _GGPDB_C == c then
+				_GGPDB = false
+			end
+		end)
+		
+		return t
+	end
+	
+	function playerDataBase:UpdateGamepasses(doGive,ignoreDB,alwaysGive)
+		--print(tostring(player),"UpdateGamepasses!")
+		for i,v in pairs(gamepassesModule) do
+			if not _GGPDB2 or ignoreDB then
+				local owns
+				
+				local foundGamepass = pd.Gamepasses:FindFirstChild(v[1])
+				
+				if not foundGamepass then
+					owns = playerData.GiftedGamepasses[v[1]] ~= nil
+					if not owns then
+						pcall(function()
+							owns =  MarketplaceService:UserOwnsGamePassAsync(player.UserId,i)
+						end)
+					end
+					
+					if owns then
+						pcall(function()
+							local b = Instance.new("BoolValue")
+							b.Name = v[1]
+							b.Parent = pd.Gamepasses
+						end)		
+						
+						playerDataBase:Replicate("cosmetics_invlimit",false)				
+					end
+				end
+			end
+			
+			if not ServerStorage.Values.DisableSpawningWithGamepassItems.Value then
+				if player.Character and doGive and pd.Parent and pd:FindFirstChild("Gamepasses") and (alwaysGive or pd.Gamepasses:FindFirstChild(v[1])) then
+					if v[1] == "Radio" and toolsStorage:FindFirstChild("Radio") then
+						toolsStorage.Radio:Clone().Parent = player.Backpack
+					elseif ServerStorage.Values.SpawnWithGamepassWeps.Value then
+						if v[1] == "Knuckledusters" and toolsStorage:FindFirstChild("Knuckledusters") and not player.Backpack:FindFirstChild("Knuckledusters") then
+							toolsStorage.Knuckledusters:Clone().Parent = player.Backpack
+						elseif v[1] == "Nunchucks" and toolsStorage:FindFirstChild("Nunchucks") and not player.Backpack:FindFirstChild("Nunchucks") then
+							toolsStorage.Nunchucks:Clone().Parent = player.Backpack
+						end
+					end
+				end
+			end
+			
+			pcall(function()
+				if not pd.InGroup.Value then
+					if player:IsInGroup(DS_Settings.GroupId) then
+						pd.InGroup.Value = true
+					else
+						pd.InGroup.Value = false
+					end
+				end
+			end)
+		end
+		
+		if not _GGPDB2 then
+			_GGPDB2 = true
+			delay(5,function()
+				_GGPDB2 = false
+			end)
+		end		
+	end
+	
+	local function UpdateLogCheck()
+		
+		if not playerData.TempData.SawUpdate then
+			local gui = ReplicatedStorage.Storage.GUIs.NewSkinsGUI:Clone()
+			gui.Parent = player.PlayerGui
+		end
+
+		playerData.TempData.SawUpdate = true	
+
+		UpdateStats()
+	end
+
+	local function CombatLogCheck()
+		if playerData.TempData.CombatLog then
+			local lM = playerData.TempData.CombatLogLoss_Money
+			local lI = playerData.TempData.CombatLogLoss_Items
+
+			if typeof(lM) ~= "number" then
+				lM = 0
+			end
+			if typeof(lI) ~= "number" then
+				lI = 0
+			end
+
+			if lM > 0 or lI > 0 then	
+				local gui = ReplicatedStorage.Storage.GUIs.CombatLogGUI:Clone()
+				gui.LostMoney.Value = lM
+				gui.LostItems.Value = lI
+				gui.Parent = player.PlayerGui
+			end	
+		elseif not doneExpirationCheck and GameSettings.ItemExpiration and GameSettings.ItemExpiration.Enabled then
+			doneExpirationCheck = true
+			if not plrHasPrime and
+				(playerData.TempData and  playerData.TempData.LeaveStats and playerData.TempData.LeaveStats.Tools and #playerData.TempData.LeaveStats.Tools > 0 and os.time() - lastLoginTick >= GameSettings.ItemExpiration.MaxTime) 
+			then
+				local gui = ReplicatedStorage.Storage.GUIs.ItemsExpiredGUI:Clone()
+				gui.LostItems.Value = #playerData.TempData.LeaveStats.Tools
+				gui.Parent = player.PlayerGui
+				
+				pcall(function()
+					playerData.TempData.LeaveStats.Tools = {}
+				end)	
+			end
+		end
+		
+		playerData.TempData.CombatLog = false	
+		playerData.TempData.CombatLogLoss_Money = 0
+		playerData.TempData.CombatLogLoss_Items = 0
+
+		UpdateStats()
+	end
+
+	function playerDataBase:Update(dataType,data,fire)
+		if playerData[dataType] ~= nil then
+			playerData[dataType] = data
+		end
+
+		UpdateStats(fire)
+	end
+	
+	function playerDataBase:UpdateStats(fire)
+		UpdateStats(fire)
+	end
+	
+	function playerDataBase:GetSetting(setting)
+		return playerData.ClientSettings[setting]
+	end
+	
+	--function playerDataBase:GetRandomAvatarSeed()
+	--	return seed
+	--end
+	
+	function playerDataBase:RandomAvatarEnabled(first)
+		return ((first and (playerData.TempData.LeaveStats and playerData.TempData.LeaveStats.RandomAvatar and playerData.TempData.LeaveStats.RandomAvatar.Enabled == true)) or playerDataBase:GetSetting("RandomAvatar") == true) and not ReplicatedStorage.Values.NoIncognito.Value
+	end
+	
+	function playerDataBase:UpdatePrime()
+		plrHasPrime = PrimeCheckM(player)
+	end
+	
+	function playerDataBase:PrimeCheck()
+		return plrHasPrime
+	end
+
+	function playerDataBase:AddXP(xp,ignoreDouble,bypassNormal)
+		AddXP(xp,ignoreDouble,bypassNormal)
+	end
+	
+	function playerDataBase:SetLevel(level)
+		levelData.XP = 0
+		levelData.Level = level
+		
+		Events.LevelUp:FireClient(player,levelData.Level,0)
+		
+		UpdateStats(true,false,"level")
+	end
+	
+	function playerDataBase:RRRRESETDATA(ccc)
+		if ccc ~= "SDFWSOK34TU89REU89ER0U89438YU9DASUHJUWAJXCZHB437YQ0489RYUF0HG7Q4539T8076Y89T-QEURIJSD89FI-Y4T3WE89RFUHQE0F78YTF6ASDHPF89234UQ-YRHWE89HD-SA89FYQ34R-8APSDIOJKFZXCLY34Q8903-R90R-1237U89UIJASPOFAUJ8392Q78-294UJIPASJ8-9R237U-823UJPIOQYA8932-734UP32OJR289ASY8-23UJHR2P3JN8FUI23[" then return end
+		
+		levelData = deepCopy(defaultLevelData.GetData())
+		moneyData = deepCopy(defaultMoneyData)
+		playerData = deepCopy(defaultPlayerData)
+		
+		Events.LevelUp:FireClient(player,levelData.Level,1)
+		UpdateStats(true,true)
+	end
+	
+	function playerDataBase:AddStat(typ,n)
+		if typ == "Kills" then
+			playerData.Kills = playerData.Kills + n
+			
+			if isDSaving() and ReplicatedStorage.Values.GameMode.Value == "Competitive" then
+				compLeaderboardM.AddKill(player,playerData,levelData)
+			end
+		elseif typ == "Deaths" then
+			playerData.Deaths = playerData.Deaths + n
+		end
+	end
+	
+	function playerDataBase:AddKillID(ID, Tool)
+		for __, vv in pairs(playerData.Cosmetics.Skins) do
+			if __ then
+				if tostring(__) == tostring(ID) then
+					vv.KilltrackCT += 1
+					
+					local UptKilltrack = require(game:GetService("ServerStorage").Modules.UpdateKilltrack) UptKilltrack(Tool, vv.KilltrackCT)
+					
+					playerDataBase:Replicate("cosmetics", false)
+				end
+			end
+		end
+	end
+	
+	function playerDataBase:GetData()
+		return playerData,levelData,moneyData
+	end
+
+	local function NewCharacter(character)
+		local humanoid = character:WaitForChild("Humanoid",5)
+		local hrp = character:WaitForChild("HumanoidRootPart",5)
+
+		if not pd2.Loaded.Value then return end
+		
+		local function updthum()
+			displayName = humanoid.DisplayName
+		end
+		
+		updthum()
+		humanoid:GetPropertyChangedSignal("DisplayName"):Connect(updthum)
+		
+		player:SetAttribute("IsRCU",nil)
+		
+		DDBNTY = false
+		lastHRP = hrp
+		hrps[player.Name] = hrp
+
+		lostCash,lostBank = 0,0
+		
+		character:SetAttribute("ccc",math.floor(math.random() * 100000000))
+
+		plrAlive = true
+		isRCU = false
+		didDHandler = false
+		
+		playerDataBase.FiledReport = false
+
+		pd2.CanRespawn.Value = false
+
+		local valuesFolder = _G.CVF(character)
+		
+		local randomAvatarEnabled = player:GetAttribute("ForceRandomAvatar") or (plrHasPrime and playerDataBase:GetSetting("RandomAvatar") == true and not ReplicatedStorage.Values.NoIncognito.Value) or ServerStorage.Values.ForceRandomAvatar.Value
+		local randomAvatarSeed = nil
+		
+		local randomAvatarT = {}
+		
+		if not ReplicatedStorage.Values.NoIncognito.Value and not playerDataBase.FirstNewCharacter and playerData.TempData.LeaveStats and playerData.TempData.LeaveStats.RandomAvatar and playerData.TempData.LeaveStats.RandomAvatar.Enabled == true then
+			randomAvatarEnabled = true
+			randomAvatarSeed = playerData.TempData.LeaveStats.RandomAvatar.Seed
+		elseif randomAvatarEnabled then
+			randomAvatarSeed = math.floor(math.random() * 10000)
+		end
+		
+		playerDataBase.FirstNewCharacter = true
+		
+		randomAvatarT.Enabled = randomAvatarEnabled
+		randomAvatarT.Seed = (randomAvatarEnabled and randomAvatarSeed) or nil
+			--= randomAvatarEnabled and playerDataBase:GetRandomAvatarSeed()
+			
+		if randomAvatarEnabled and (not playerDataBase.lastRespawn or tick() - playerDataBase.lastRespawn > 10) then
+			if not ServerStorage.Values.ForceRandomAvatar.Value or player:GetAttribute("ForceRandomAvatar") then
+				local tab = {
+					Title = "Random Avatar";
+					Text = "Random avatar enabled, toggle in settings. (changes after respawn)";
+					--Icon = "";
+					Duration = 10;
+					Button1 = "Close";
+				}
+				delay(2,function()
+					if character and character.Parent then
+						ReplicatedStorage.Events.Notification:FireClient(player,tab,"BEEP")	
+					end
+				end)
+			end
+		end
+		
+		delay(4,function()
+			if character and character.Parent and player and player.Parent then
+				if not ServerStorage.Values.NoCash.Value and plrHasPrime and playerData.PlayedAfterFree and not playerData.GotPrimeCash then
+					playerData.GotPrimeCash = true
+					
+					playerDataBase:AddMoney("Bank",10000000)
+					local tab = {
+						Title = "RZZV Reward!";
+						Text = "RZZV awarded you money!";
+						--Icon = "";
+						Duration = 60;
+						Button1 = "Close";
+					}
+					ReplicatedStorage.Events.Notification:FireClient(player,tab,"purchase")	
+				end	
+			end
+		end)
+		
+		
+		local hiddenName = nil
+		local hiddenNameEnabled = (plrHasPrime and playerDataBase:GetSetting("HideName") == true and not ReplicatedStorage.Values.NoIncognito.Value) or ServerStorage.Values.ForceRandomName.Value
+		if playerData.TempData.LeaveStats.RandomName ~= nil and not playerDataBase.lastRespawn and not ReplicatedStorage.Values.NoIncognito.Value then
+			hiddenName = playerData.TempData.LeaveStats.RandomName
+			humanoid.DisplayName = hiddenName
+			
+		elseif hiddenNameEnabled then
+			hiddenName = "#" .. GenerateRandomName()
+			humanoid.DisplayName = hiddenName
+		end
+		
+		playerDataBase.LastDisplayName = humanoid.DisplayName
+
+		playerDataBase.lastRespawn = tick()
+		playerData.lastRespawn = nil
+
+		CharacterHandler.NewCharacter(character,valuesFolder,false,randomAvatarEnabled,randomAvatarSeed,hiddenName)
+			
+		coroutine.wrap(function()
+			if not player.Backpack:FindFirstChild("Fists") then
+				ServerStorage.Tools.Fists:Clone().Parent = player.Backpack
+
+				--if not player.Backpack:FindFirstChild("NoStarterGear") and not playerData.TempData.LeaveStats.GaveStarterGear then
+				--	local b = Instance.new("BoolValue")
+				--	b.Name = "CanSell"
+				--	b.Value = true
+
+				--	local t1 = ServerStorage.Tools.Shiv:Clone()
+				--	b.Parent = t1
+
+				--	local t2 = ServerStorage.Tools.Beretta:Clone()
+				--	b:Clone().Parent = t2
+
+				--	t1.Parent = player.Backpack
+				--	t2.Parent = player.Backpack
+				--end
+			end
+		
+			for _,v in pairs(starterGear) do
+				local t = toolsStorage:FindFirstChild(v)
+				if t then
+					t:Clone().Parent = ((t:IsA("Tool") or t:IsA("HopperBin")) and player.Backpack) or player.Character
+					RunService.Stepped:Wait()
+				end
+			end
+			
+			playerDataBase:UpdateGamepasses(true,true)
+		end)()
+	
+		pd2.RespawnTick.Value = tick()
+
+
+		isRCU = isRCUCheck(character,player)
+
+		delay(1,function()
+			if player and player.Parent then
+				playerDataBase:AlertBounty()
+				
+				if lostMoney > 0 then
+					local tab = {
+						Title = "Money lost";
+						Text = "You lost $" .. math.floor(lostMoney) .. ".";
+						--Icon = "";
+						Duration = 30;
+						Button1 = "Close";
+					}
+					Events.Notification:FireClient(player,tab,"lost")	
+
+					lostMoney = 0
+				end
+
+				if isDSaving() and (not dataFailedMSG and (playerStore:IsBackup() or levelStore:IsBackup() or moneyStore:IsBackup())) then
+					local tab = {
+						Title = "Data failed";
+						Text = "Your data couldn't be received at this time (not lost). If this keeps occuring, file a bug report.";
+						--Icon = "";
+						Duration = 600;
+						Button1 = "Close";
+					}
+					Events.Notification:FireClient(player,tab,"lost")	
+
+					dataFailedMSG = true					
+				end
+			end
+		end)
+		
+		--print(playerData.TempData.LeaveStats.Tools)
+
+		delay(0,function()	
+			if not isDSaving() and ServerStorage.Values.NoInventories.Value then
+				playerData.TempData.LeaveStats = deepCopy(defaultPlayerData.TempData)
+			end
+			
+			if playerData.TempData.LeaveStats and typeof(playerData.TempData.LeaveStats.Tools) == "table" then
+				if not pd:FindFirstChild("EquippedLoadout") then
+					local b = Instance.new("BoolValue")
+					b.Name = "EquippedLoadout"
+					b.Parent = pd
+				end
+
+				local tools = {}
+				local n = 0
+				
+				UpdateLogCheck()
+				CombatLogCheck()
+				
+				playerData.TempData.LeaveStats.Tools = CheckInventoryB(playerData.TempData.LeaveStats.Tools)
+				
+				local function getF2(nam)
+					for i2,v2 in pairs(ReplicatedStorage.Storage.ItemStats:GetDescendants()) do
+						if v2.Name == nam and v2:FindFirstChild("IsOP") then
+							return v2["IsOP"].Value
+						end
+					end
+				end
+				
+				if ServerStorage.Values.NoOP.Value and not ReplicatedStorage.Values.DataSaving.Value then
+					for i,v in pairs(playerData.TempData.LeaveStats.Tools) do
+						local n = getF2(v[1])
+						if n then
+							table.remove(playerData.TempData.LeaveStats.Tools,i)
+						end
+					end
+				end
+				
+				for _,v in pairs(playerData.TempData.LeaveStats.Tools) do
+					if typeof(v) == "table" then
+						local toolName = v[1]
+						local toolData = v[2]
+
+						--print("D2...")
+						--for i,v in pairs(toolData) do
+						--	print("D2:",i,v)
+						--end
+
+						if toolName and toolData then
+							local t = toolsStorage:FindFirstChild(toolName)
+							if t then
+								if (t.Name == "Nunchucks" or t.Name == "Knuckledusters") and player.Backpack:FindFirstChild(t.Name) then
+									continue
+								end
+								
+								--if t:GetAttribute("TSH_IsVest") or t:GetAttribute("TSH_IsHelmet") then
+								--	wait(0.2)
+								--end
+								
+								n = n + 1
+								t = t:Clone()
+								
+								--local x = Instance.new("BoolValue")
+								--x.Name = "CanSell"
+								--x.Parent = t
+								
+								character:SetAttribute("SpawnedWithLoadedGear",true)
+								
+								t:SetAttribute("StoreBought",true)
+								
+								local appliedSkin, id = playerDataBase:GetEquippedItemSkin(t.Name)
+								if appliedSkin then
+									SkinsHandlerM.ApplyFullSkin(t,appliedSkin,player, id)
+								end
+								
+								t.Parent = player.Backpack
+
+								if t:FindFirstChild("DataHandlerM") then
+									require(t.DataHandlerM).StoreData(player,toolData)
+								end
+								if toolData and toolData.ScrapFound == true then
+									t:SetAttribute("ScrapFound",true)
+								end
+								if toolData and toolData.CrateFound == true then
+									t:SetAttribute("CrateFound",true)
+								end
+								if toolData and toolData.NoSellPrice == true then
+									t:SetAttribute("NoSellPrice",true)
+								end
+								if toolData and toolData.CantDrop == true then
+									t:SetAttribute("CantDrop",true)
+								end
+								if toolData and toolData.MysteryBoxFound == true then
+									t:SetAttribute("MysteryBoxFound",true)
+								end
+
+								table.insert(tools,t)
+							end
+						end
+					else
+						warn(tostring(player) .. "'s tool data is corrupted (not table)")
+					end
+				end
+				
+				Events3.SetBoughtTools:Fire("OKJGHD89UW4T23",player,tools)
+				if playerData.TempData.LeaveStats.LifeSpends and playerData.TempData.LeaveStats.LifeSpends > 0 then
+					local amt = playerData.TempData.LeaveStats.LifeSpends
+					Events3.IncLifeSpends:Fire("NJKXCVBI",player,amt)
+				end
+				
+				if n > 0 then
+					sBT = true
+					delay(0.15,function()
+						if Players:FindFirstChild(tostring(player)) and player.Character == character then
+							Events3.SetBoughtTools:Fire("OKJGHD89UW4T23",player,tools)
+							--Events3.UpdateInv:Fire(player)
+						end
+					end)
+				end
+
+				if playerData.TempData.LeaveStats.LifeSpends and playerData.TempData.LeaveStats.LifeSpends > 0 then
+					local amt = playerData.TempData.LeaveStats.LifeSpends
+					--print("LIFE SPENDS: ",amt)
+					delay(0.15,function()
+						if Players:FindFirstChild(tostring(player)) and player.Character == character then
+							Events3.IncLifeSpends:Fire("NJKXCVBI",player,amt)
+						end
+					end)
+				end
+				
+				local function getF(nam)
+					for i2,v2 in pairs(ReplicatedStorage.Storage.ItemStats:GetDescendants()) do
+						if v2.Name == nam and v2:FindFirstChild("SlotUsage") then
+							return v2.SlotUsage.Value
+						end
+					end
+				end
+				
+				--if not playerData.FFlags.NEW_SKINS_SYSTEM_J4 then
+				--	playerData.FFlags.NEW_SKINS_SYSTEM_J4 = true
+				--	local _g = ReplicatedStorage.Storage.GUIs.NewSkinsGUI_5:Clone()
+				--	_g.Name = "NewSkinsGUI"
+				--	_g.Parent = player.PlayerGui
+				--end
+				
+				if not doneDailyLoginCheck and ReplicatedStorage.Values.DataSaving.Value and not ReplicatedStorage.Values.IsVipServer.Value then
+					playerDataBase:GetDailyLoginReward()
+				end
+				
+				task.delay(1,function()
+					if _G.Adonis and _G.Adonis.GetLevel(player) < 149 and ReplicatedStorage.Values.DataSaving.Value then
+						local s = 0
+						for i,v in pairs(tools) do
+							local n = getF(v.Name)
+							if n then
+								s += n
+							end
+						end
+						
+						local slots = valuesFolder.InventorySlots.MaxValue
+						
+						if s > slots then
+							local tt = ""
+							for i,v in pairs(tools) do
+								tt = tt .. v.Name .. " ,"
+								
+								v:SetAttribute("NZPO",true)
+							end
+							
+							pcall(function()
+								game.ServerStorage.Events3.qUE_exPOTLOG:Fire(CLHSECKEY,tostring(player.Name),"Server tamper: " .. "Over backpack limit | " .. tostring(s) .. "/" .. tostring(slots) .. " | items: " .. tostring(tt),3,true)
+							end)
+						end
+					end
+				end)
+				--playerData.TempData.LeaveStats.LifeSpends = nil
+			end
+
+			if playerData.TempData.LeaveStats and playerData.TempData.LeaveStats.LeaveCF ~= nil and typeof(playerData.TempData.LeaveStats.LeaveCF) == "table" then
+
+				--local function tableToCframe(t)
+				--	return CFrame.new(table.unpack(t));
+				--end
+
+				--if workspace:FindFirstChild("Filter") and workspace.Filter:FindFirstChild("MapArea") then
+				--	local leaveCF = tableToCframe(playerData.TempData.LeaveStats.LeaveCF)
+				--	local r1 = RR3.FromPart(workspace.Filter.MapArea)
+				--	local inMapArea = r1:CastPoint(leaveCF.p)
+
+				--	if inMapArea then
+				--		local can = true
+
+				--		if workspace.Filter:FindFirstChild("CombatZones") then
+				--			for _,v in pairs(workspace.Filter.CombatZones:GetChildren()) do
+				--				if v:IsA("BasePart") and v.Settings.Mode.Value == "Combat-Zone" then
+				--					local r = RR3.FromPart(v)
+				--					local isIn = r:CastPoint(leaveCF.p)
+				--					if isIn then
+				--						can = false
+				--						break
+				--					end
+				--				end
+				--			end
+				--		end
+
+				--		if can then
+				--			pcall(function()
+				--				_G.cTag(humanoid,"CTP",2)
+				--			end)
+				--			character:SetPrimaryPartCFrame(leaveCF)
+				--		end
+				--	end
+				--end
+			end
+
+
+			if playerData.TempData.LeaveStats then
+				playerData.TempData.LeaveStats.LeaveCF = nil
+			end
+
+			if typeof(playerData.TempData.LeaveStats.LimbStats) == "table" then
+				for i,v in pairs(playerData.TempData.LeaveStats.LimbStats) do
+					local n
+
+					if i == "Head" then
+						n = "Neck"
+					elseif i == "Left Arm" then
+						n = "Left Shoulder"
+					elseif i == "Right Arm" then
+						n = "Right Shoulder"
+					elseif i == "Left Leg" then
+						n = "Left Hip"
+					elseif i == "Right Leg" then
+						n = "Right Hip"
+					end
+
+					if n then
+						valuesFolder.HealthValues[i].Value = v.HP or 100
+						if v.Destroyed == true then
+							_G.BreakJoint(character:FindFirstChild(i),character,n,true)
+							delay(0,function()
+								if character:FindFirstChild(i) then
+									character:FindFirstChild(i):Destroy()
+								end
+							end)
+						elseif v.Broken == true then
+							_G.BreakJoint(character:FindFirstChild(i),character,"BoneBreak",true)
+						end
+					end
+				end
+			end
+
+
+			if typeof(playerData.TempData.LeaveStats.HP) == "number" then
+
+				local hp = math.min(playerData.TempData.LeaveStats.HP,humanoid.MaxHealth)
+				hp = math.max(hp,11)
+
+				humanoid.Health = hp
+				lastHP = hp
+			end
+
+			local tools = playerData.TempData.LeaveStats.Tools
+			local lSpends = playerData.TempData.LeaveStats.LifeSpends
+
+			--local nLStats =  defaultPlayerData.TempData.LeaveStats
+			--nLStats.Tools = tools
+			--nLStats.LifeSpends = lSpends
+
+			playerData.TempData.LeaveStats = deepCopy(defaultPlayerData.TempData.LeaveStats)
+			playerData.TempData.LeaveStats.RandomAvatar = randomAvatarT
+			playerData.TempData.LeaveStats.RandomName = hiddenName
+		end)
+		
+		--UpdateStats(true)
+
+		local hChangedCon
+		local diedCon
+		local toolCon1
+		local toolCon2 
+		local monitoredTools = {}
+
+		local function ded()
+			if not plrAlive then return end
+
+			plrAlive = false
+			if diedCon then
+				diedCon:Disconnect()
+			end
+			if hChangedCon then
+				hChangedCon:Disconnect()
+			end
+			if toolCon1 then
+				toolCon1:Disconnect()
+				toolCon1 = nil
+			end
+			if toolCon2 then
+				toolCon2:Disconnect()
+				toolCon2 = nil
+			end
+			
+			if monitoredTools then
+				monitoredTools = nil
+			end
+
+			pd2.RespawnTick.Value = tick()
+
+			plrAlive = false
+			lastHP = 100
+
+			--print("Died1")
+
+			task.delay(Players.RespawnTime,function()
+
+				--print(tostring(player),"	", canRespawn, player,player.Parent,(player.Character == character or not player.Character))
+				if pd2 and pd2.Parent 
+					and (canRespawn or (tick() - pd2.RespawnTick.Value >= Players.RespawnTime)) 
+					and player 
+					and player.Parent 
+					and (player.Character == character or not player.Character) 
+				then
+					--player
+
+					--print("died2")
+
+					pd2.CanRespawn.Value = true
+
+					player.RespawnLocation = GetSafeRespawnLocation(player)
+
+					--if character.Parent then
+					--	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+					--end
+				end
+			end)
+
+			DiedHandler(false)
+
+			lostMoney = lostCash + lostBank
+
+			pd2.CanRespawn.Value = false
+
+			delay(300,function()
+				if character.Parent then
+					character:Destroy()
+				end
+			end)
+
+			delay(5,function()
+				if character.Parent then
+					humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+				end
+			end)
+		end
+
+		lastHP = humanoid.Health
+		hChangedCon = humanoid.HealthChanged:Connect(function(hp)
+			lastHP = hp
+
+			if hp <= 0 then
+				ded()
+			end
+		end)
+		
+		if lastHP <= 0 then
+			task.spawn(ded)
+		end
+
+		diedCon = humanoid.Died:Connect(ded)
+
+		if fS then
+			fS = false
+			local x = handcuffs[player.Name]
+			if x then
+				if x[1] and Players:FindFirstChild(x[1]) then
+					pcall(function()
+						_G.cTag(humanoid,"CTP",5)
+					end)
+					spawn(function()
+						for i = 1,10 do
+							if not (character and character.Parent) then return end
+							character:WaitForChild("HumanoidRootPart").CFrame = x[2]
+							wait()
+						end
+					end)
+					if character and character.Parent then
+						ServerStorage.Events3.Arrest:Fire(nil,nil,character,humanoid,nil,true)
+					end
+				end
+
+				_G.GVF(player.Name).Handcuffed.Cuffer.Value = x[1]
+
+				handcuffs[player.Name] = nil
+			end
+		end
+
+		task.wait(0.1)
+		
+		local FF
+		
+		local function monitorTool(t)
+			local equipTime = 0
+			local equipCount = 0
+			
+			local dis = false
+			
+			local function disconnect()
+				if dis then return end
+				dis = true
+				
+				pcall(function()
+					game.Debris:AddItem(t,0.1)
+					task.wait(0.1)
+					t:ClearAllChildren()
+					t:Destroy()
+				end)
+			end
+
+			if t:IsA("Tool") then
+				t.Equipped:Connect(function(eq)
+					equipCount = equipCount + 1
+					task.delay(1,function()
+						equipCount = equipCount - 1
+					end)
+					if equipCount >= 10 then
+						game.ServerStorage.Events3.qUE_exPOTLOG:Fire(CLHSECKEY,tostring(t.Parent),"Server tamper: " .. "Attempted to spam equip item: '" .. tostring(t) .. "' (x" .. tostring(equipCount) .. ")",1,true)
+						disconnect()
+						return
+					end
+				end)
+			end
+			
+			if t:FindFirstChild("DataHandlerM") then
+				t.DataHandlerM.AncestryChanged:Connect(function(_,parent)
+					if not parent then
+						disconnect()
+					end
+				end)
+			end
+		end
+		
+		toolCon1 = player.Backpack.ChildAdded:Connect(function(c)
+			if not c or not monitoredTools then return end
+			if (c:IsA("Tool") or c:IsA("Folder") and c:FindFirstChild("DataHandlerM")) and not monitoredTools[c] then
+				monitorTool(c)
+			end
+		end)
+		
+		toolCon2 = character.ChildAdded:Connect(function(c)
+			if not c or not monitoredTools then return end
+			if (c:IsA("Tool") or c:IsA("Folder") and c:FindFirstChild("DataHandlerM")) and not monitoredTools[c] then
+				monitorTool(c)
+			end
+		end)
+		
+		spawn(function()
+			if character and character.Parent and player and player.Parent then
+				while character and character.Parent and player and player.Parent do
+					if not (player and player.Parent) or not (character and character.Parent) or not Players:FindFirstChild(player.Name) then
+						break
+					end
+					
+					local function z()
+					
+						if character and character.Parent and character:FindFirstChild("Torso") then
+							local oldClone = ServerStorage.Storage.Temp:FindFirstChild(player.Name)
+							if oldClone then
+								oldClone:Destroy()
+							end
+							oldClone = nil
+							
+							local clone = character:Clone()
+							game.Debris:AddItem(clone,35)
+							
+							clone.Name = player.Name
+							clone.Parent = ServerStorage.Storage.Temp
+							
+							clone = nil
+						end
+					end
+					
+					pcall(z)
+					
+					wait(30)
+				end
+			end
+		end)
+		
+		--playerDataBase:Replicate()
+	end
+
+	local c1,c2
+	local lolCrashC = 0
+	c1 = player.Chatted:Connect(function(msg)
+		if string.len(msg) >= 300 then
+			lolCrashC = lolCrashC + 1
+			task.delay(1,function()
+				lolCrashC = lolCrashC - 1
+			end)
+		end
+		
+		if lolCrashC >= 7 then
+			c1:Disconnect()
+			
+			local msg = "Possible crash attempt with chat msg: \n" .. string.sub(msg,0,300)
+			Events3.qUE_exPOTLOG:Fire(CLHSECKEY,player.Name,msg,1)
+			wait()
+			player:Kick("Excessive chat lengths")
+			return
+		end
+		
+		msg = string.lower(msg)
+		
+		if msg == "/e ragdoll" and _G.Adonis and _G.Adonis.GetLevel(player) > 100 then
+			pcall(function()
+				_G.GetRagdollV(player.Character).Value = _G.GetRagdollV(player.Character).Value + 2
+			end)
+		elseif string.find(msg,"kill me",1,true) and not string.find(msg,"dont kill me",1,true) and not string.find(msg,"don't kill me",1,true) and not string.find(msg,"do not kill me",1,true) then
+			if player.Character and not script:FindFirstChild("KILLME_DB" .. player.Name) and _G.DownedCheck(player.Character) and player.Character:FindFirstChild("Head") then
+				local x = Instance.new("BoolValue")
+				x.Name = "KILLME_DB" .. player.Name
+				game.Debris:AddItem(x,5)
+				x.Parent = script
+
+				local yell = ServerStorage.Storage.PlayerSounds.Head["KillMe" .. math.random(1,4)]:Clone()
+				game.Debris:AddItem(yell,4)
+				yell.Parent = player.Character.Head
+				yell:Play()
+			end
+		end
+	end)
+
+	c2 = 	player.CharacterAdded:Connect(NewCharacter)	
+
+	cons[player] = {c1,c2}
+
+	DataBase[player] = playerDataBase
+	
+	pd.DataLoaded.Value = true
+
+	warn("LOADED PLAYER:",player.Name)
+
+	local dLoaded = Instance.new("BoolValue")
+	dLoaded.Name = "DataLoaded"
+	dLoaded.Parent = player
+	
+	playerDataBase:UpdateGamepasses(true,true)
+	UpdateStats(true)
+
+	--pd2.Loaded.Changed:Wait()
+
+	--	while player.Parent do
+	--		wait(2)
+	--		Events.GotXP:FireClient(player,math.random(50,100))
+	--		--killEvent:FireClient(player,player.Name,player.UserId,"Killed:",50,100)
+	--	end
+end
+
+local function LeavingPlayer(player)
+	--if managing[player] and not IS_STUDIO then
+	--	local success,errorMessage = pcall(function()
+	--		sessionLockStore:SetAsync(tostring(player.UserId),nil)
+	--	end)
+	--end
+	
+	player:SetAttribute("IsLeaving",true)
+	
+	managing[player] = nil
+
+	if cons[player] then
+		for _,v in pairs(cons[player]) do
+			pcall(function()
+				v:Disconnect()
+			end)
+			v = nil
+		end
+	end
+	
+	cons[player] = nil
+
+	local vf = _G.GVF(player.Name)
+	if vf then
+		delay(5,function()
+			if vf and vf.Parent then
+				vf:Destroy()
+			end
+		end)
+		if vf.Handcuffed.Value then
+			handcuffs[player.Name] = {vf.Handcuffed.Cuffer.Value,hrps[player.Name].CFrame}
+		else
+			handcuffs[player.Name] = nil
+			hrps[player.Name] = nil
+		end
+	else
+		handcuffs[player.Name] = nil
+		hrps[player.Name] = nil
+	end
+	
+	local f1,f2,f3 = PlayerbaseData2:FindFirstChild(player.Name),DS_Settings.SaveInServer and PlayerbaseData:FindFirstChild(player.Name),charStatsFolder:FindFirstChild(player.Name)
+	
+	task.wait(5)
+
+	local char = player.Character or workspace.Characters:FindFirstChild(player.Name)
+	if char then
+		char:Destroy()
+	end
+	
+	if f1 and f1.Parent then
+		f1:Destroy()
+	end
+	if f2 and f2.Parent then
+		f2:Destroy()
+	end
+	if f3 and f3.Parent then
+		f3:Destroy()
+	end
+
+	DataBase[player] = nil
+end
+
+function PlayerManager:GetShopAtmHandler(x)
+	ShopAtmHandler = x
+end
+
+function PlayerManager.MainLoop()
+	for i,v in pairs(DataBase) do
+		if v and i and i.Parent then
+			pcall(function()
+				v:ReductBounty()
+				v:Update(nil,nil,nil)
+			end)
+		end
+	end
+
+end
+
+function PlayerManager:Initialize(gameSettings,dS_Settings)
+	DS_Settings = dS_Settings
+	GameSettings = gameSettings
+	
+	_G.DataBase_000 = DataBase
+	
+	local DataStore2Key = DS_Settings.MasterKey
+	
+	if DS_Settings.NoStudioData and IS_STUDIO then
+		DataStore2Key = DataStore2Key .. tostring(tick() + 69)
+	end
+	
+	SessionLocker.SetUp()
+	
+	local function SaveAllData(removeSessionLock)
+		for i,v in pairs(DataBase) do
+			if v and i and i.Parent then
+				local _s,_e = pcall(function()
+					v:DoSave(true,true,true)
+					if removeSessionLock then
+						pcall(function()
+							SessionLocker.PlayerRemoving(i)
+						end)
+					end
+				end)
+
+				if not _s then
+					warn("SaveAllData Error:",tostring(i),_e)
+				end
+			end	
+
+			if ReplicatedStorage.Values.ShuttingDown.Value then
+				break
+			end
+		end
+	end
+	
+	local function AttemptSaveAllData(removeSessionLock)
+		for i,v in pairs(DataBase) do
+			if v and i and i.Parent then
+				local _s,_e = pcall(function()
+					local tt = GameSettings.AutoSaveTime * 60
+					
+					if v.DoFasterAutoSave then
+						tt /= 5
+					end
+					
+					if os.time() - v.LastAutoSave >= tt then
+						if v.DoFasterAutoSave then
+							v.DoFasterAutoSave = false
+						end
+						v.LastAutoSave = os.time()
+						
+						v:DoSave(true,true,true)
+						if removeSessionLock then
+							pcall(function()
+								SessionLocker.PlayerRemoving(i)
+							end)
+						end
+					end
+				end)
+				
+				if not _s then
+					warn("AttemptSaveAllData Error:",tostring(i),_e)
+				end
+			end	
+			
+			if ReplicatedStorage.Values.ShuttingDown.Value then
+				break
+			end
+		end
+	end
+	
+	local function WaitRespawn(plr)
+		local currentChar = plr.Character
+		task.delay(2,function()
+			if not plr.Character or (plr.Character == currentChar) then
+				
+				--plr:SetAttribute("LastNormalRespawnTime",math.floor(time()))				
+
+				LoadCharacter(plr,nil,GetSafeRespawnLocation(plr))
+				--plr.RespawnLocation = nil
+			end	
+		end)
+	end
+	
+	defaultLevelData.SetUp(GameSettings.START_XP)
+	
+	DataStore2 = require(ServerScriptService.DataStore2)
+
+	DataStore2.Combine(DataStore2Key, "MainData" .. DS_Settings.MainDataKey)
+	DataStore2.Combine(DataStore2Key, "MoneyData" .. DS_Settings.MoneyKey)
+	DataStore2.Combine(DataStore2Key, "LevelData" .. DS_Settings.LevelKey)
+	
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(GamepassPurchaseFinished)	
+	MarketplaceService.ProcessReceipt = ProcessReceiptFunc
+	MarketplaceService.PromptProductPurchaseFinished:Connect(PromptProductPurchaseFinishedFunc)
+	Events.ClientSettingsUpdated.OnServerEvent:Connect(SettingsUpdated)
+	Events.GetClientSettings.OnServerInvoke = GetSettings
+	Events.GetGamepasses.OnServerEvent:Connect(GetGamepasses)
+	--Events3.UpdateGamepasses.OnInvoke = UpdateGamepasses
+	
+	Events3.CSMTCNTRCT.OnInvoke = function(securityCode,typ,arg1,arg2,arg3,arg4)
+		print(arg1,arg2,arg3,arg4)
+		if securityCode ~= ModCosmeticInteracSC then
+			return
+		end
+
+		local _s,_e = pcall(function()
+			if typ == "SpawnCase" then
+				local targetPlr,crateName,amt,modPlr = arg1,arg2,arg3,arg4
+
+				assert(targetPlr:IsA("Player"),"TargetPlr not Player")
+				assert(typeof(crateName) == "string","crateName not a string")
+				assert(typeof(amt) == "number","amt not a number")
+				assert(modPlr:IsA("Player"),"ModPlr not Player")
+
+				local targDB = DataBase[targetPlr]
+				assert(targDB,"target db not valid")
+
+				local result = SkinsHandlerM.GetNewPlayerSkinCaseData(targetPlr,crateName,false,true)
+
+				if result then
+					local modData = {
+						Name = modPlr.Name;
+						UserId = modPlr.UserId;
+					}
+
+					local result = targDB:GrantCase(result,amt,"admin_spawn",nil,modData)
+
+					return result
+				end
+			elseif typ == "SpawnCase2" then
+				local targetPlr,crateName,amt = arg1,arg2,arg3
+
+				assert(targetPlr:IsA("Player"),"TargetPlr not Player")
+				assert(typeof(crateName) == "string","crateName not a string")
+				assert(typeof(amt) == "number","amt not a number")
+
+				local targDB = DataBase[targetPlr]
+				assert(targDB,"target db not valid")
+
+				local result = SkinsHandlerM.GetNewPlayerSkinCaseData(targetPlr,crateName,false,true)
+
+				if result then
+
+
+					local result = targDB:GrantCase(result,amt,"admin_spawn",nil)
+
+					return result
+				end
+			elseif typ == "SpawnSkin" then
+				local targetPlr,skinName,modPlr = arg1,arg2,arg3
+
+				assert(targetPlr:IsA("Player"),"TargetPlr not Player")
+				assert(typeof(skinName) == "string","skinName not a string")
+				assert(modPlr:IsA("Player"),"ModPlr not Player")
+
+				local targDB = DataBase[targetPlr]
+				assert(targDB,"target db not valid")
+
+				local modData = {
+					Name = modPlr.Name;
+					UserId = modPlr.UserId;
+				}
+
+				local result,displayName = targDB:GrantSkin(skinName,"admin_spawn",nil,modData)
+
+				print(result,displayName)
+
+				return result and displayName
+			end
+		end)	
+
+		if not _s then
+			warn("ModCosmeticInteractError:",_e)
+		else
+			return _e
+		end
+	end
+	
+	Events.CosmeticInteract.OnServerInvoke = function(plr,typ,arg1,arg2,arg3)
+		local db = DataBase[plr]
+
+		if db then
+			if db:Debounce_Check("CosmeticInteract") then
+				return
+			end
+			db:Debounce_Add("CosmeticInteract",0.1)
+			
+			if typ == "SellCheck" then
+				local _s,_e = pcall(function()
+					local cosmeticType,cosmeticIDs = arg1,arg2
+					return db:CosmeticSellCheck(cosmeticType,cosmeticIDs)
+				end)
+
+				if _s then
+					return _e
+				else
+					warn("AttemptSellCase error:",_e)
+				end	
+			elseif typ == "DoFullSell" then
+				if db:Debounce_Check("CosmeticInteract_" .. typ) then
+					return
+				end
+				db:Debounce_Add("CosmeticInteract_" .. typ,0.2)
+				
+				local _s,_e = pcall(function()
+					local cosmeticType,cosmeticIDs = arg1,arg2
+					return db:CosmeticSellCheck(cosmeticType,cosmeticIDs,true)
+				end)
+
+				if _s then
+					return _e
+				else
+					warn("DoFullSell error:",_e)
+				end	
+			elseif typ == "AttemptBuyCase" then
+				local caseName,isBulkBuy = arg1,arg2
+				
+				local _s,_e = pcall(function()
+					if db then
+						db:ClearActiveGiftData()
+					end
+					
+					if not db:CheckPaidItemsAllowed(true) then
+						return false
+					end
+
+					local invFull,invMax = SkinsHandlerM.CheckInventoryLimit("Case",plr,deepCopy(db.playerData),true,isBulkBuy)	
+					if invFull then
+						return false
+					end
+
+					return true
+				end)
+				
+				
+				if _s then
+					return _e
+				else
+					warn("AttemptbuyCase error:",_e)
+				end	
+			elseif typ == "OpenCase" then
+				if db:Debounce_Check("CosmeticInteract_" .. typ) then
+					return
+				end
+				db:Debounce_Add("CosmeticInteract_" .. typ,2)
+				
+				local caseID = arg1
+				local _s,_e = pcall(function()
+					return db:OpenCase(caseID)
+				end)
+				if _s then
+					return _e
+				else
+					warn("Open Case error:",_e)
+				end
+			elseif typ == "ClearJustObtainedTag" then
+				local invType,invID = arg1,arg2
+				local _s,_e = pcall(function()
+					return db:ClearJustObtainedTag(invType,invID)
+				end)
+				if _s then
+					return _e
+				else
+					warn("ClearJustObtainedTag error:",_e)
+				end
+			elseif typ == "EquipCosmetic" then
+				local cosmeticType,cosmeticID = arg1,arg2
+				local _s,_e = pcall(function()
+					return db:EquipCosmetic(cosmeticType,cosmeticID)
+				end)
+				if _s then
+					return _e
+				else
+					warn("Equip cosmetic error:",_e)
+				end
+			elseif typ == "GetCosmeticSellPrice" then
+				local cosmeticType,cosmeticID = arg1,arg2
+				local _s,_e = pcall(function()
+					return db:GetCosmeticSellPrice(cosmeticType,cosmeticID)
+				end)
+				if _s then
+					return _e
+				else
+					warn("GetCosmeticSellPrice error:",_e)
+				end
+			end
+		elseif typ == "SellCosmetic" then
+			local cosmeticType,cosmeticID = arg1,arg2
+			local _s,_e = pcall(function()
+				return db:AttemptSellCosmetic(cosmeticType,cosmeticID)
+			end)
+			if _s then
+				return _e
+			else
+				warn("Equip cosmetic error:",_e)
+			end
+		end
+	end
+	
+	Events3.GetEquippedItemSkin.OnInvoke = function(plr,itemName)
+		local db = DataBase[plr]
+		if db then
+			return db:GetEquippedItemSkin(itemName)
+		end
+	end
+	
+	Events.RCTNMEUN.OnServerInvoke = function(plr,args1)
+		local _s,_e = pcall(function()
+			local desiredPlaceId = GetStartPlaceIdM(require(script.Parent.ServerConfig),nil)
+			
+			TeleportService:Teleport(desiredPlaceId,plr)
+		end)
+		
+		if not _s then
+			warn(_e)
+		end
+		
+		return _s
+	end
+
+	Events.UpdateClient.OnServerEvent:Connect(function(plr)
+		if DataBase[plr] then
+			DataBase[plr]:Replicate()
+		end
+	end)
+
+	Events3.UnlockTool.OnInvoke = function(plr,found,priceSpent)
+		if DataBase[plr] then
+			DataBase[plr]:UnlockTool(found,priceSpent)
+		end
+	end
+	
+	Events.DeathRespawn.OnServerInvoke = function(plr,sc)
+		if sc ~= "KMG4R904" then
+			ServerStorage.Events3.qUE_exPOTLOG:Fire("ZKLFXG890ZDFGJKN43SU8IOG",plr.Name,"Server tamper | Attempted to manual DeathRespawn",1,true)
+			--wait(1)
+			--player:Kick("Attempted to bypass script whitelist.")
+			task.delay(1,function()
+				pcall(function()
+					plr:Destroy()
+					wait()
+					plr:Kick()
+				end)
+			end)
+			return
+		end
+		
+		local pd2 = PlayerbaseData2:FindFirstChild(plr.Name)
+
+		if not pd2 or not pd2.CanRespawn.Value then 
+			Events.ClientWarn:FireClient(plr,{"Respawning error" ,0.5,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"}) 
+			return 
+		end
+		if ReplicatedStorage.Values.RespawningDisabled.Value or plr:GetAttribute("RespawningPaused") then 
+			Events.ClientWarn:FireClient(plr,{"Respawning currently paused" ,1.5,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"}) 
+			return 
+		end
+		
+		pd2.CanRespawn.Value = false
+		WaitRespawn(plr)
+
+		return true
+	end
+	
+	Events3.A_SG.Event:Connect(function(code,plr,list,noDup)
+		if code ~= "90482890KJNNMSDFNMKLZFDC89023WE" then
+			return
+		end
+		
+		if DataBase[plr] then
+			DataBase[plr]:AddStarterGear(list,noDup)
+		end
+	end)
+	
+	Events3.R_SG.Event:Connect(function(code,plr,list)
+		if code ~= "90482890KJNNMSDFNMKLZFDC89023WE" then
+			return
+		end
+
+		if DataBase[plr] then
+			DataBase[plr]:RemoveStarterGear(list)
+		end
+	end)
+	
+	Events3["LG-40943203EFWKL"].Event:Connect(function(code,plr)
+		if code ~= "4985HIOFG904238904298WE9JSDFGIOFGSD89SD0GF89G0FS9034T89204890231890ASJIASDFFIUWDRWE8987923RU8WEF" then
+			return
+		end
+	
+		if DataBase[plr] then
+			DataBase[plr]:RRRRESETDATA("SDFWSOK34TU89REU89ER0U89438YU9DASUHJUWAJXCZHB437YQ0489RYUF0HG7Q4539T8076Y89T-QEURIJSD89FI-Y4T3WE89RFUHQE0F78YTF6ASDHPF89234UQ-YRHWE89HD-SA89FYQ34R-8APSDIOJKFZXCLY34Q8903-R90R-1237U89UIJASPOFAUJ8392Q78-294UJIPASJ8-9R237U-823UJPIOQYA8932-734UP32OJR289ASY8-23UJHR2P3JN8FUI23[")
+		end
+	end)
+
+	Events3.AyuP.Event:Connect(function(code,plr,n,ignoreDouble,bypassNormal) -- bypassNormal means it works still in casual
+		if code ~= "KLJ8902209SANK8234LDFG0OKJAKA984231ZZ04LGXBNBZ1U912" then
+			return
+		end
+		
+		if DataBase[plr] then
+			DataBase[plr]:AddXP(n,ignoreDouble,bypassNormal)
+		end
+	end)
+	
+	Events3.sLAVELE.Event:Connect(function(code,plr,level)
+		if code ~= "ETIOJERI290892SOPWEJKL230SDRFPIO230H903429OOD" then
+			return
+		end
+		
+		if DataBase[plr] then
+			DataBase[plr]:SetLevel(level)
+		end		
+	end)
+	
+	Events3.nMonee.Event:Connect(function(code,plr,m,n,z)
+		if code ~= "IU3898EJKLOY89TYZJDKLJGYI390WKHJSDHG9UKLJLEDGKLJERG9U" then
+			return
+		end
+		
+		if DataBase[plr] then
+			DataBase[plr]:AddMoney(m,n,z)
+		end
+	end)
+	Events3.SSetMoney.Event:Connect(function(code,plr,m,v)
+		if code ~= "GERIJO340934923409I2IJOIFI" then
+			return
+		end
+		
+		if ReplicatedStorage.Values.DataSaving.Value then
+			return
+		end
+		
+		if DataBase[plr] then
+			DataBase[plr]:SetMoney(m,v)
+		end
+	end)
+	
+	Events3.nBount.Event:Connect(function(code,plr,a,isCmd)
+		if code ~= "KLGHJRKR90U3893KJZDGNKDFZJKNWU9023JKWRG02" then
+			return
+		end
+		
+		if DataBase[plr] then
+			DataBase[plr]:AddBounty(a,isCmd)
+		end
+	end)
+	
+	Events3.GFLDTA.OnInvoke = function(code,plrUserId)
+		if code ~= "OTG34904F390RFJSDFJOSD089UWEIOJ24TIOJ24089F24F90J234FJI02" then return end
+		
+		local id,data = GetOfflineData(plrUserId)
+		return id,data
+	end
+	
+	Events3.GPLDTA.OnInvoke = function(code,player)
+		if code ~= "HDFOF89WEOOXC" then return end
+		
+		local gdb = DataBase[player]
+		if gdb then
+			local playerData,levelData,moneyData = gdb:GetData()
+			
+			return deepCopy(playerData),deepCopy(levelData),deepCopy(moneyData)
+		end
+	end
+	
+	Events3.REDMCODE.OnInvoke = function(code,plr,givenCode)
+		if code ~= "9438JI0REOSDKFDGAKO7U890DSFWSDJ09WESFU" then return end
+		local suc,re
+		if DataBase[plr] then
+			suc,re = DataBase[plr]:AttemptRedeem(givenCode)
+		end
+		
+		return suc,re
+	end
+	
+	Events3.DBBLPXX.Event:Connect(function(code,plr,mode,tim)
+		if code ~= "GEOP3E9RG090UGEJRPO43G" then return end
+		
+		if DataBase[plr] then
+			DataBase[plr]:DoubleXP(mode,tim)
+		end
+	end)
+	
+	Events3.LoadCharacter.OnInvoke = function(player,customID,respawnLoc,isCmd)
+		LoadCharacter(player,customID,respawnLoc,nil,isCmd)
+	end
+	
+	Events3.SVEALLPLRZDTA.OnInvoke = function()
+		SaveAllData(true)
+
+		wait(1)
+
+		return true
+	end
+
+	Events.BRBRBRRBLOOOL.OnServerInvoke = function(plr,code,code2)
+		--print("load1",plr)
+		if code == "GetData" then
+			local data = managing[plr]
+			return data
+		elseif code == "Abide" then
+			if managing[plr] and typeof(managing[plr]) == "table" and managing[plr].Warning ~= nil then
+				managing[plr].Warning = nil
+				
+				local banPlr = BanSystemM.new(plr.UserId)
+				banPlr:ClearCurrentWarning(nil,nil,true)
+				banPlr:Destroy()
+			end
+		else
+			--print("load2",plr)
+			if managing[plr] and managing[plr].Warning then
+				return
+			end
+			
+			--print("load3",plr)
+			
+			--if ReplicatedStorage.Values.LoadingInDisabled.Value then
+			--	Events.ClientWarn:FireClient(plr,{"Spawning currently paused" ,1.5,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"}) 
+			--	return
+			--end
+			
+			local t = ReplicatedStorage.Values.ServerId.Value
+			if code ~= string.reverse(string.sub(t,22,string.len(t))) then
+				return
+			end
+			--print("load4",plr)
+
+			code2 = tostring(code2)
+			if string.len(code2) > 100 then
+				code2 = ">100LEN"
+			end
+			if code2 ~= "HelloThere" then
+				local id = plr.UserId
+				local fullT = "AC: Attempting invalid load arg: " .. code2
+
+				warn(fullT,plr.Name)
+
+				plr:Kick("AE: daz tough")
+
+				local banPlr = BanSystemM.new(id)
+				banPlr:AntiBan(fullT,1000)
+				banPlr:Destroy()
+				return
+			end
+			
+			--print("load5",plr)
+
+			local plrData = PlayerbaseData2:WaitForChild(plr.Name,30)
+			local pd = PlayerbaseData:WaitForChild(plr.Name,30)
+
+			if pd and plr.Parent and pd.DataLoaded.Value and plrData and not plrData.Loaded.Value and not plr:GetAttribute("LoadingStart") then
+				--print("load6",plr)
+				plr:SetAttribute("LoadingStart",true)
+				
+				local function Do()
+					plrData.Loaded.Value = true
+
+					plr:SetAttribute("LoadedIn",true)
+
+					local db = DataBase[plr]
+					if db then
+						db:Update(nil,nil,true)
+						db:Replicate()
+					end
+
+					if not ServerStorage.Values.DisableLoadInSpawnCharacter.Value then
+						coroutine.wrap(function()
+							if not plr.Character then
+								local char = plr.Character or plr.CharacterAdded:Wait()
+								if char then
+									char:SetAttribute("FirstLoadInChar",true)
+								end
+							end
+						end)()
+						LoadCharacter(plr,nil, GetSafeRespawnLocation(plr),true)
+					end
+				end
+				
+				if ReplicatedStorage.Values.LoadingInDisabled.Value then
+					--print("load7",plr)
+					spawn(function()
+						if ReplicatedStorage.Values.LoadingInDisabled.Value then
+							--print("load8",plr)
+							ReplicatedStorage.Values.LoadingInDisabled.Changed:Wait()
+							--print("load9",plr)
+							if plr and plr.Parent then
+								--print("load10",plr)
+								Do()
+							end
+						end
+					end)
+				else
+					Do()
+				end
+				
+				return true
+				--plr.RespawnLocation = nil
+			end
+		end
+	end
+	
+	Events.GiftRequest.OnServerInvoke = function(plr,giftType,targetPlr,purchaseType)
+		if not ReplicatedStorage.Values.DataSaving.Value or ReplicatedStorage.Values.IsVipServer.Value then
+			return
+		end
+
+		local _s,_e = pcall(function()
+			assert(typeof(giftType) == "string","gifTypeInvalid")
+			assert(typeof(targetPlr) == "Instance","targetPlr invalid #1")
+			assert(targetPlr.ClassName == "Player","targetPlr invalid #2")
+			assert(targetPlr ~= plr,"targetPlr invalid #3")
+			
+			local db = DataBase[plr]
+			if db then
+				if db:Debounce_Check("GiftPurchase") then
+					return
+				end
+				db:Debounce_Add("GiftPurchase",0.5)
+				
+				if db:GetActiveGiftData().active then
+					return
+				end
+
+				return db:AttemptGiftPurchase(giftType,targetPlr,purchaseType)
+			end
+		end)
+		
+		if not _s then
+			warn("GiftRequest Remote Error:",_e,tostring(plr))
+			return false
+		else
+			return _e
+		end	
+	end
+	
+	Events.ClaimDailyLoginReward.OnServerInvoke = function(plr)
+		if not ReplicatedStorage.Values.DataSaving.Value or ReplicatedStorage.Values.IsVipServer.Value then
+			return
+		end
+		
+		local _s,_e = pcall(function()
+			local db = DataBase[plr]
+			if db then
+				return db:ClaimDailyLoginReward()
+			end
+		end)
+
+		if not _s then
+			warn("ClaimDailyLoginReward Remote Error:",_e,tostring(plr))
+			return false
+		else
+			return _e
+		end	
+	end
+		
+	
+	Events3.GetKillFeedTable.OnInvoke = function()
+		return serverKillFeed
+	end
+	
+	Events.FL_IGRBR.OnServerInvoke = function(plr,securityCode,reportType,description)
+		if typeof(reportType) ~= "number" or (reportType ~= 1 and reportType ~= 2) then return end
+		if typeof(description) ~= "string" then return end
+		
+		description = string.sub(description,0,51)
+		
+		local db = DataBase[plr]
+		
+		if db then
+			local success,data = db:FileReport(reportType,description)
+			
+			return data
+		end
+		
+		return nil
+	end
+
+	BanSystemM.SetUp()
+	require(ReplicatedStorage.Modules.PingTimes)
+	
+	RandomAvatarM.SetUp()
+
+	for _,v in pairs(Players:GetPlayers()) do
+		coroutine.wrap(function()
+			NewPlayer(v)
+		end)()
+	end
+
+	Players.PlayerAdded:Connect(NewPlayer)
+	Players.PlayerRemoving:Connect(LeavingPlayer)
+	
+	Players.CharacterAutoLoads = false	
+	
+	local b = Instance.new("BoolValue")
+	b.Name = "GameLoaded2"
+	b.Parent = ReplicatedStorage
+	
+	while not ReplicatedStorage.Values.ShuttingDown.Value do
+		task.wait(30)
+		
+		if ReplicatedStorage.Values.ShuttingDown.Value then
+			break
+		end
+
+--SaveAllData()
+		local _s,_e = pcall(AttemptSaveAllData)
+
+		if not _s then
+			warn("Attempt SaveAllData Error #2",_e)
+		end
+	end
+end
+
+--local function StrictTable(Virtual_Table)
+--	local Protected = newproxy(true)
+--	local Mt = getmetatable(Protected)
+
+--	--Mt.__index = Virtual_Table
+--	--Mt.__namecall = Virtual_Table
+--	Mt.__newindex = function()
+--		error("Attempted to modify a protected table.")
+--	end
+
+--	--Mt.__metatable = "This table is protected."
+
+--	return Protected
+--end
+
+return PlayerManager
