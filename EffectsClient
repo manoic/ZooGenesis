@@ -1,0 +1,443 @@
+--34GKB8495GJNNJR44FV
+local UIS = 				game:GetService("UserInputService")
+
+local RS = 					game:GetService("RunService")
+local TS = 					game:GetService("TweenService")
+local ReplicatedStorage =	game:GetService("ReplicatedStorage")
+local RunService = 			game:GetService("RunService")
+local DebrisService = 		game:GetService("Debris")
+
+local DEBRIS = 		workspace:WaitForChild("Debris")
+local STORAGE = 	ReplicatedStorage:WaitForChild("Storage")
+local EVENTS = 		ReplicatedStorage:WaitForChild("Events")
+local EVENTS2 =	 	ReplicatedStorage:WaitForChild("Events2")
+local MODULES = 	ReplicatedStorage:WaitForChild("Modules")
+	local DAMAGE =	 	require(MODULES.Damage)
+	local EFFECTS = 	require(MODULES.Effects)
+	local CONFIG	= require(MODULES:WaitForChild("Config"))
+
+local Camera = 	workspace.Camera
+local Player = 	game.Players.LocalPlayer
+
+local CameraModule = MODULES.CMRCM
+_G.CameraModule = require(CameraModule)
+
+local RayHandler = require(MODULES.RayHandler)
+
+local objects = {}
+local tracers = {}
+
+function Remove(code,x)
+	if objects[code] then
+		if not x then
+			pcall(function()
+				objects[code]:Destroy()
+			end)
+		else
+			objects[code].Anchored = true
+			objects[code].Transparency = 1
+			
+			if objects[code]:FindFirstChild("Trail") then
+				objects[code].Trail.Enabled = false
+			end
+			
+			for _,v in pairs(objects[code]:GetChildren()) do
+				if not (v:IsA("Trail") or v:IsA("Attachment")) then
+					v:Destroy()
+				elseif v:IsA("Attachment") then
+					for _,z in pairs(v:GetChildren()) do
+						if z:IsA("ParticleEmitter") then
+							z:Destroy()
+						end
+					end
+				end
+			end
+		end
+		objects[code] = nil
+	end
+end
+
+
+EVENTS:WaitForChild("Create_C4").OnClientEvent:Connect(function(code,gPlr,StartCF,Force,returnEvent)
+	local _, withinScreenBounds = Camera:WorldToScreenPoint(StartCF.p)
+	if gPlr ~= Player and (StartCF.p - Camera.CFrame.p).Magnitude >= 150 and not withinScreenBounds then return end
+	
+	local c4 = STORAGE:WaitForChild("F_C4"):Clone()
+	game.Debris:AddItem(c4,60)
+	c4.Name = "TransIgnore"
+	local origSize = c4.Size
+	c4.CFrame = StartCF * CFrame.Angles(math.rad(0),math.rad(90),math.rad(90))
+	c4.Parent = workspace.Debris.VParts
+	c4.CanCollide = false
+	c4.Anchored = false
+	
+	c4.Beep.Playing = true
+	c4.X.EM.Enabled = true
+
+	objects[code] = c4
+
+	if Force then
+		if typeof(Force) == CFrame or typeof(Force) == "CFrame" then
+			Force = Vector3.new(0,0,0)
+		end
+		c4.Velocity = Force
+	end
+	
+	local bF = Instance.new("BodyForce")
+	_G.cTag(bF,"BM")
+	bF.Force = Vector3.new(0,2,0)
+	bF.Parent = c4
+	
+	--local RR3 = require(MODULES.RotatedRegion3)
+	local con
+	
+	local function GotFunc(part,position,normal)
+		pcall(function()
+			local ori = c4.CFrame
+			local ori2 = c4.Orientation.Y
+			
+			--position = Vector3.new(position.X,ori.p.Y,position.Z) 
+			position = position + Vector3.new(0,0.2,0)
+			
+			if con then
+				con:Disconnect()
+				con = nil
+			end
+			
+			local cf = CFrame.new(position,position + normal) * CFrame.Angles(math.rad(-90),0,0)
+			cf = cf + (cf.UpVector * 0.2)
+			cf = cf * CFrame.Angles(0,math.rad(ori2),0)
+			c4.CFrame = cf
+			c4.Massless = true
+			c4.CanCollide = false
+			c4.Anchored = true
+				
+			if gPlr == Player then
+				returnEvent:FireServer("Do",part,cf)
+			end
+			
+			return true
+		end)
+		
+		return false
+	end
+
+	local lastCF = StartCF
+	
+	con = RunService.Heartbeat:Connect(function(dt)
+--		local Region = RR3.block(c4.CFrame,origSize * 1.3)
+--		Region = Region:cast2({workspace.Map},10)
+--		
+--		for _,v in pairs(Region) do
+--			--local x = c4.CFrame.p + (CFrame.new(c4.CFrame.p,lastpos).LookVector * 5)
+--			--local ray = Ray.new(x, (v.CFrame.p - x).Unit * (x- v.CFrame.p).Magnitude)
+--			
+--			local A = lastpos
+--			local B = c4.CFrame.p
+--			local ray = Ray.new(A,12.5*(B-A)) --If A is the previous position of the C4 x seconds ago, and B is the current position of the C4
+--			local npart, position, normal = workspace:FindPartOnRayWithWhitelist(ray, {v}, true)
+--
+--			if npart and position and normal then
+--				if GotFunc(npart,position,normal) then
+--					con:Disconnect()
+--					break
+--				end
+--			end
+		--		end
+		
+		local A = lastCF.p
+		local B = c4.CFrame.p
+		
+		if returnEvent then
+			local nn = 600 * dt
+			--print(nn)
+			if (A - B).Magnitude > nn then
+				c4.CFrame = lastCF
+				--print("XDR")
+				return
+			end
+		end
+		
+		local ray = Ray.new(A,2.5*(B-A)) --If A is the previous position of the C4 x seconds ago, and B is the current position of the C4
+		
+		local ig = {workspace.Characters}
+		
+		local function rayDo()
+			local npart, position, normal = RayHandler.CastRay(ray,ig,{type = "m"})
+			
+			--npart, position, normal = workspace:FindPartOnRayWithIgnoreList(ray, ig, false,true)
+			
+			if npart and npart ~= workspace.Terrain then
+				if npart.Name == "DFrame" or not npart.CanCollide then
+					table.insert(ig,npart)
+					return rayDo()
+				end
+			end
+			
+			return npart,position,normal
+		end
+		
+		local part,pos,normal = rayDo()
+		
+		if part and GotFunc(part,pos,normal) then
+			con:Disconnect()
+		end
+		lastCF = c4.CFrame
+	end)
+	
+	local con2
+	con2 = c4.AncestryChanged:Connect(function(_,parent)
+		if not parent then
+			if returnEvent then
+				returnEvent:FireServer("Lost")
+			end
+			if con then
+				con:Disconnect()
+			end
+			if con2 then
+				con2:Disconnect()
+			end
+			con = nil
+			con2  = nil
+		end
+	end)
+	
+	wait(10)
+	
+	if con then
+		con:Disconnect()
+	end
+	if con2 then
+		con2:Disconnect()
+	end
+end)
+
+EVENTS:WaitForChild("Monitor_C4").OnClientEvent:Connect(function(tool,c4,returnEvent)
+	local char = Player.Character
+	local root = char.HumanoidRootPart
+	local humanoid = char.Humanoid
+	
+	local function customFunc()
+		return char:FindFirstChild(tool.Name)
+	end
+	
+	EVENTS2.AddExtraInteract:Fire(c4,returnEvent,{"Pickup"},0,Enum.KeyCode.E,customFunc)
+end)
+
+local function MonitorChain(Tool)
+	local code = math.random()
+	local Handle = Tool:WaitForChild("HHandle")
+	
+	local x = true
+	
+	Tool.AncestryChanged:Connect(function(_, parent)
+		if not parent or not parent:FindFirstChild("Humanoid") then
+			x = false
+		end
+	end)
+	
+	local c1 = Handle.Chain.Chain1
+	local c2 = Handle.Chain.Chain2
+	
+	local fp
+	
+	local t = tick()
+	
+	--pcall(function()
+		while x do wait()
+			if not (x and Handle.Parent) then break end
+			local p1,p2 = Handle.Chain.Chain1,Handle.Chain.Chain2
+			if _G.VM and _G.VM.Check(Tool) then
+				if Handle == Tool.HHandle then
+					Handle.Chain.Chain1.Transparency = 1
+					Handle.Chain.Chain2.Transparency = 1	
+				end
+				fp = true
+				p1 = _G.VM.CloneTool:FindFirstChild("Chain1")
+				p2 = _G.VM.CloneTool:FindFirstChild("Chain2")
+			else
+				fp = false
+				Handle = Tool.HHandle
+			end
+			
+			p1.Transparency = 0
+			p2.Transparency = 1
+			wait()
+			p1.Transparency = 1
+			p2.Transparency = 0
+		end
+	--end)	
+end
+
+EVENTS:WaitForChild("MonitorTool").OnClientEvent:Connect(function(Tool,a)
+	MonitorChain(Tool)
+end)
+
+EVENTS:WaitForChild("RemoveObject").OnClientEvent:Connect(function(code,x)
+	Remove(code,x)
+end)
+
+local function ProjectHandle(Part,ev,aC)	
+	local Result,Result2,Result3,Result4
+	local con1,con2
+	
+	local lastCF = Part.CFrame
+	local origSize = Part.Size
+	
+	Part.Anchored = false
+	
+	local partDes = false
+	local finished = false
+	local inters = 0
+	
+	local e = Instance.new("BindableEvent")
+	
+	local function DISC()
+		if not (con1 and con2) then return end
+		con1:Disconnect()
+		con2:Disconnect()
+		con1 = nil
+		con2 = nil
+		e:Fire()
+	end
+	
+	local t = tick()
+	local gCF
+	local function Do(dt)
+		local A = lastCF.p
+		local B = Part.CFrame.p
+		
+		local nn = 1200 * dt
+		
+		if (A - B).Magnitude > nn then
+			Part.CFrame = lastCF
+			--print("XDRR")
+			return
+		end
+		
+		local vel = math.min(Part.Velocity.Magnitude,1000)
+		--(Part.Velocity.Magnitude * dt) * 1
+		
+		local len = math.max(vel / 233,1)
+
+		local ray = Ray.new(A,len*(B-A)) --If A is the previous position of the C4 x seconds ago, and B is the current position of the C4 --If A is the previous position of the C4 x seconds ago, and B is the current position of the C4
+		
+		local ig = {Part;workspace.CurrentCamera}
+		
+		local function rayDo()
+			--local npart, position, normal = workspace:FindPartOnRayWithIgnoreList(ray, ig, false,true)
+
+			local npart, position, normal = RayHandler.CastRay(ray,ig,{type = "m"})
+			
+			if npart then
+				if not npart:FindFirstChild("CanHitT")
+					and (
+						npart.Name == "DFrame" 
+						or npart:FindFirstChild("FilterV") 
+						--or (not npart.CanCollide and not isCharDesc)
+						or (npart:IsDescendantOf(Player.Character) and inters <= 4)
+					)
+					then
+					table.insert(ig,npart)
+					return rayDo()
+				end			--
+			end
+			
+			return npart,position,normal
+		end
+		
+		local part,pos,normal = rayDo()
+		
+		if part and pos and normal then
+			Result = part.CFrame
+			Result2 = pos
+			Result3 = normal	
+			Result4 = part			
+		end
+		
+		if Result or time() - t >= 30 then
+			DISC()
+			return
+		end
+		
+		lastCF = Part.CFrame
+		inters = inters + 1
+	end
+	
+	con1 = Part.AncestryChanged:Connect(function(_,parent)
+		if not parent then
+			partDes = true
+			Result = ""
+			DISC()
+		end
+	end)
+	
+	con2 = RunService.Heartbeat:Connect(Do)
+	
+	e.Event:Wait()
+	e:Destroy()
+	
+	if Part and Part.Parent then
+		Part.Anchored = true
+	end
+
+	if ev and Result ~= "" then
+		ev:FireServer(Part,Result,Result2,Result3,Result4)
+		return
+	else
+		return Result,Result2,Result3,Result4
+	end	
+end
+
+function ExplosionHandle(Part,sound,monitor)
+	if not (Part and Part.Parent) then return end
+
+	if Part:FindFirstChild("Attachment") then
+		for _,v in pairs(Part.Attachment:GetChildren()) do
+			if v:IsA("ParticleEmitter") and v:FindFirstChild("Emit") then
+				v:Emit(v:FindFirstChild("Emit").Value)
+			end
+		end
+	end
+		
+	if sound then
+		sound:Play()
+		EVENTS2.MonitorSound:Fire(unpack(monitor))
+	end
+end
+
+EVENTS:WaitForChild("ExplosionEffect").OnClientEvent:Connect(ExplosionHandle)
+
+EVENTS:WaitForChild("SupplyPlaneHandler").OnClientEvent:Connect(function(plane)
+	
+end)
+
+EVENTS:WaitForChild("SupplyBoxHandler").OnClientEvent:Connect(function(crate)
+	local box = crate.Box
+	local parachute = crate.Parachute
+
+	local hitbox = box.HitBox
+	local can_at = parachute.Canister.Attachment
+	
+	can_at.ParticleEmitter.Enabled = false
+	wait()
+	can_at.ParticleEmitter.Enabled = true
+end)
+
+EVENTS:WaitForChild("ForceClientParticles").OnClientEvent:Connect(function(t)
+	for i,v in pairs(t) do
+		v.Enabled = false
+	end
+	RunService.Heartbeat:Wait()
+	for i,v in pairs(t) do
+		v.Enabled = true
+	end
+end)
+
+EVENTS:WaitForChild("ProjectileHandle").OnClientInvoke = ProjectHandle
+EVENTS:WaitForChild("ProjectileHandle2").OnClientEvent:Connect(ProjectHandle)
+
+
+EVENTS:WaitForChild("Effect").OnClientEvent:connect(function(...)
+	EFFECTS:Effect(...)
+end)
