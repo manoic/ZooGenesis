@@ -1,0 +1,264 @@
+
+
+
+
+
+
+
+
+
+
+
+
+local S = 
+{
+	Name 	= "M320";
+		Type	= "Gun";
+		Version = 1.0;
+		HandleName = "Handle";
+	
+	EquipTime 	= 0.65;
+		EquipAnimSpeed = 0.8;
+	
+	MagSize		= 		1;
+			StartFull = true;
+		
+	StoredAmmo 	= 		5;
+	FireRate	= 		1.5;
+	Range		= 		300;
+	BulletsPerShot	= 	1;
+	Spread		= 		8;
+		CrouchSpreadReduction = 0.9;
+		WalkSpreadIncrease = 1.2;
+	
+	BulletHoleSize = 0.3;
+	
+	FireAnimSpeed = 1.5;
+	
+	Damage		= 115;
+		HeadshotMultiplier = 1.4;
+		DownedDiv = 4;
+		FlinchTime = 0.35;
+		
+	ReloadTime	= 3.5;
+	ReloadAnimSpeed = 0.85;
+		ReloadSlowDown = 7.5;
+
+	ShotgunSettings = {
+		ShotgunReload = 	false;
+		
+		ReloadStartTime = 0;
+		
+		ShellInTime = 		0.75;
+		
+		ReloadEndTime = 0;
+		
+			ShellInAnimSpeed =	0.75;
+		FirePump = 			false;
+		FShellIn = 			false;
+			FShellInTime =		0;
+	};
+	
+	ShellType = "P";
+	ShellOutSettings = {
+		Do = false;
+		Vec = Vector3.new(0,0,0);
+		Vel = 0;
+		RotVel = 0;
+	};
+	
+	MagSettings = 
+	{
+		DropMag = true;
+		DropWait = 1;
+		DropForce = Vector3.new(0,-10,0);
+	};
+		
+	FireModeSettings = {
+		FireMode	= "Semi";
+		CanSwitch = true;
+	};
+
+	SniperEnabled = false;
+	SniperSettings = {
+	};
+	
+	MinigunEnabled = false;
+		DelayBeforeFiring = 0;
+		MinigunFireDB = 0.75;
+	GrenadeLauncherEnabled = false;
+		
+	RocketLauncherEnabled = true;
+		RocketSpeed = 500;
+		RocketUpForce = 		0;
+		RocketRotVel =			3;
+		RotStartTime = 0.25;
+		RocketMaxRange = 2000;
+		RocketMaxTime = 60;
+		
+		ExplosionName = "GL_Explosion_Long";
+		ExplosionDelay = 0.2;
+		ExplosionDelayMulti = 1.5;
+
+		DistExplosionType = {
+			Enabled = true;
+			UnderDist = 12;
+			ExplosionName = "GL_Explosion_Short";
+
+			AccelerationM = true;
+		};
+
+		RocketName = "GrenadeLauncherGrenade";
+			
+	Dropoff		= 1;
+	Knockback = 1000;
+	
+	SlowDown = {
+		Enabled = true;
+		Amount = 1;
+	};
+	FireSlowDown = {
+		Enabled = true;
+		Amount = 7;
+		Time = 0.5;
+	};
+	
+	Inspecting = {
+		Enabled = true;
+		AnimSpeed = 1;
+		TR = -0.3;
+			
+		FPOffset = Vector3.new(0,0.25,-0.5);
+	};
+	CrouchOffset = {
+		Enabled = true;
+		Offset = Vector3.new(0.15, -0.25, 0);
+		Angle = Vector3.new(0, 0, 25);
+	};
+	
+	AimSettings = {
+		Enabled = true;
+		
+		AimSpeed = 0.35;
+		CrossSpeed = 30;
+		CrossSize = 10;
+
+		ShowCursor = false;
+		
+		IdleAnimSpeed = 0;
+		
+		FieldOfViewS = 45;
+		MouseSensitiveP = 0.4; --In percent
+		SpreadReductionP = 0.1; --In percent. NOTE: Must be the same value as "SpreadRedutionOS"
+		
+		SlowDown = 5;
+		
+		RecoilReduction_X = 0.75;
+		RecoilReduction_Y = 1;
+		RecoilReduction_Z = 0.85;
+		
+		Offset = CFrame.new(-0.3233,-0.05,0.4) * CFrame.Angles(math.rad(5),math.rad(-1.43),math.rad(-1.5));
+		
+		FireAnimWeight = 1;
+		
+		EasingStyle =			Enum.EasingStyle.Quint;
+		EasingDirection =		Enum.EasingDirection.Out;
+
+		FOV_EasingStyle = 		Enum.EasingStyle.Quint;
+		FOV_EasingDirection =	Enum.EasingDirection.Out;
+		
+		ForceADS = false;
+		
+		DepthOfField =  {
+			Enabled =		true;
+			FarIntensity =	0;
+			FocusDistance =	1.4;
+			InFocusRadius = 0.7;
+			NearIntensity =	1;
+		};
+			
+		ADS_ArmsOffset = CFrame.new(-0.5, 0.2, -0.05);
+	};
+		
+	ArmsOffsetCF = {
+		Enabled = true;
+		Offset = CFrame.new(0,0,0.35);
+		IgnoreHolster = false;
+		IgnoreReload = false;
+	};	
+		
+	LimitedAmmoEnabled = true;
+	
+	CameraRecoilingEnabled = true;
+	Recoil = 20;
+	AngleX_Min = 4; --	this is y basically idk
+	AngleX_Max = 4; --	this is y basically idk
+	AngleY_Min = -1; -- this is x idk
+	AngleY_Max = 1; --	this is x idk
+	AngleZ_Min = -1; --	z
+	AngleZ_Max = 1; --	z
+    Accuracy = 0.1; --	In percent. For example: 0.5 is 50%
+    RecoilSpeed = 20; 
+    RecoilDamper = 0.999;
+	RecoilRedution = 0; --In percent.
+	
+	HitmarkersEnabled = true;
+    CrossSize = 		10;
+    CrossExpansion = 	100;
+    CrossSpeed = 		30;
+    CrossDamper	= 		0.8;
+
+	TurnToMouse = true;
+		TurnSpeed = 10;
+		
+	TrailSettings =
+	{
+		Color =					Color3.fromRGB(255, 249, 183);
+		LightEmission = 		1;
+		LightInfluence = 		1;
+		Transparency = 			0.1;
+		FadeSpeed =				0.65;
+		Width =					0.165;
+	};
+	
+	FlashSettings = {
+		Enabled = 		true;
+		Brightness = 	5;
+		Color = 		Color3.fromRGB(255, 244, 202);
+		Range = 		6;
+		Shadows = 		true;
+		Time = 			0.05;
+	};
+	
+	MuzzleFlashEmitCount = 17;
+	
+	Blood = {
+		Enabled = true;
+			A = { -- Main
+				Amount = 		{1,1};
+				Speed = 		50;
+				Spread = 		{-15,15};
+				Size = 			1; -- Pool Size
+				WidthScale =	1;
+				UpVector = 		Vector3.new(0,0,0);
+				RepeatCount =	1; -- Amount of times to repeat
+				RepeatTick =	0; -- Wait time between ticks
+			};
+			B = { -- Bleed out effect
+				Amount = 		{1,1};
+				Speed = 		5;
+				Spread = 		{-15,15};
+				Size = 			0.5; -- Pool Size
+				WidthScale =	0.4;
+				UpVector = 		Vector3.new(0,0,0);
+				RepeatCount =	5; -- Amount of times to repeat
+				RepeatTick =	0.5; -- Wait time between ticks
+			};
+	};
+	
+	Customs = {
+		["MGL_Stuff"] = {"Explosive2","Gas2","Fire","Smoke"}
+	}
+}
+
+return S
