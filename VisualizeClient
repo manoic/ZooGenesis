@@ -1,0 +1,860 @@
+--34GKB8495GJNNJR44FV
+local ReplicatedStorage =	game:GetService("ReplicatedStorage")
+local Players = 			game:GetService("Players")
+local RunService = 			game:GetService("RunService")
+local DebrisService = 		game:GetService("Debris")
+
+local EVENTS =		ReplicatedStorage:WaitForChild("Events")
+local EVENTS2 =		ReplicatedStorage:WaitForChild("Events2")
+	
+local hitStuff = ReplicatedStorage:WaitForChild("Storage"):WaitForChild("HitStuff")
+
+local PLAYER =	Players.LocalPlayer
+local CAMERA	= workspace.CurrentCamera
+local DEBRIS	= workspace:WaitForChild("Debris")
+local FILTER	= workspace:WaitForChild("Filter",1000)
+local MODULES	= ReplicatedStorage:WaitForChild("Modules")
+local CONFIG	= require(MODULES:WaitForChild("Config"))
+local DAMAGE_Effect	=	require(MODULES.Effects:WaitForChild("Damage"))
+
+local FastCast = require(MODULES:WaitForChild("FastCastRedux"))
+local Caster = FastCast.new() --Set the caster values
+
+local bullets = {}
+
+local BULLETS_DIR = Instance.new("Folder")
+BULLETS_DIR.Name = "Bullets"
+BULLETS_DIR.Parent = CAMERA
+
+FastCast.DebugLogging = false
+FastCast.VisualizeCasts = false
+FastCast.RayExit = false -- Only applies for Wall Penetration.
+
+local springM = require(MODULES.Spring)
+local fastWait =require(MODULES.FastWait)
+
+local cameraspring = springM.spring.new(Vector3.new())
+cameraspring.s	= 20
+cameraspring.d	= 0.999
+
+local playerFPS = 60
+local LastIteration
+local HBStart = tick()
+local FrameUpdateTable = {}
+
+getfenv(0).script = nil
+
+local dump = string.dump
+local wait = wait
+local pcall = pcall
+local tick = tick
+local time = time
+local math = math
+local mR = math.rad
+
+local ev = EVENTS.ZFKLF_H
+
+local function CryptString(Str, Key)
+	return Str:gsub('.', function(c)
+		return string.char(c:byte()+Key)
+	end)
+end
+
+local function CryptTable(Table, Key)
+	local Crypted_Table = {}
+
+	for i,v in next, Table do
+		Crypted_Table[CryptString(tostring(i), Key)] = v
+	end
+
+	return Crypted_Table
+end
+
+local function StrictTable(Virtual_Table)
+	local Protected = newproxy(true)
+	local Mt = getmetatable(Protected)
+
+	Mt.__index = Virtual_Table
+	Mt.__namecall = Virtual_Table
+	Mt.__newindex = function()
+		error("Attempt to modify a protected table.")
+	end
+
+	Mt.__metatable = "This table is protected."
+
+	return Protected
+end
+
+local function protectTable(Table)
+	local SecretKey = math.floor(math.random()*100)
+	local CryptedTable = CryptTable(Table, SecretKey)
+	local NewTable = {}
+
+	for i,v in next, CryptedTable do
+		local NewIndex = CryptString(tostring(i), -SecretKey)
+		NewTable[tonumber(NewIndex) or NewIndex] = v
+	end
+
+	return StrictTable(NewTable)
+end
+
+local function Lerp(a, b, c)
+	return a + ((b - a) * c)
+end
+
+local function BloodFX(config,pos,dir,hitPart,hitPoint,hitNormal,extraHitInfo)
+	local isArmored = _G.IsArmoredCheck(hitPart.Parent,hitPart.Name)
+	
+	local tab,tab2 = DAMAGE_Effect(nil,"Create",pos,dir,hitPart,hitPoint,hitNormal,extraHitInfo,nil,nil,config.Blood,config.BulletHoleSize,isArmored)
+	return tab,tab2
+end
+
+local function getValueStr(s)
+	local r = 0
+	for c in s:gmatch'.' do
+		r = r + c:byte()
+	end
+
+	return r or 0
+end
+
+local TimeFunction = RunService:IsRunning() and time or os.clock
+HBStart = TimeFunction()
+
+local function HeartbeatUpdate(dt)
+	LastIteration = TimeFunction()
+	for Index = #FrameUpdateTable, 1, -1 do
+		FrameUpdateTable[Index + 1] = FrameUpdateTable[Index] >= LastIteration - 1 and FrameUpdateTable[Index] or nil
+	end
+
+	FrameUpdateTable[1] = LastIteration
+	local CurrentFPS = math.floor(TimeFunction() - HBStart >= 1 and #FrameUpdateTable or #FrameUpdateTable / (TimeFunction() - HBStart))
+
+	--if CurrentFPS > 60 then
+	--	CurrentFPS = 60
+	--end
+	
+	--print(CurrentFPS)
+	
+	return CurrentFPS
+end
+
+local Mods = {
+	['IntSalt'] = 21231,
+	['UserIdSalt'] = false
+}
+
+Mods = protectTable(Mods)
+
+local gunClientDir = ReplicatedStorage:WaitForChild("Storage"):WaitForChild("GunClient")
+local namez = {["Head"] = true;["Left Arm"] = true;["Right Arm"] = true;["Right Leg"] = true;["Left Leg"] = true}
+local whizzSounds = ReplicatedStorage:WaitForChild("Storage"):WaitForChild("WhizzSounds")
+
+local hitFunctions = {}
+local globalDT = 0.016666666666667
+
+local CosmeticBullet = Instance.new("Part")
+CosmeticBullet.Name = "Bullet"
+CosmeticBullet.Material = Enum.Material.SmoothPlastic
+
+CosmeticBullet.CanCollide = false
+CosmeticBullet.CanTouch = false
+CosmeticBullet.CastShadow = false
+CosmeticBullet.Anchored = true
+
+local Funcz
+Funcz = {
+	["cg"] = function()
+		local function gnc()
+			return tick() - (Mods.IntSalt+(Mods.UsernameSalt and getValueStr(tostring(game.Players.LocalPlayer)) or 0) + (Mods.UserIdSalt and game.Players.LocalPlayer.UserId/2 or 0))
+		end
+
+		local suc,n = pcall(gnc)
+		return suc and n or nil
+	end,
+	["distToBullet"] = function(bulletOrigin, bulletDirection, enemyPosition)
+		local eps = 0.0001
+
+		local toEnemy = enemyPosition - bulletOrigin
+		local toEnemyDist = toEnemy.magnitude
+
+		if toEnemyDist <= eps then
+			-- bullet fired from inside/beside the enemy (edge case)
+			-- return distance of 0
+			return 0
+		end
+
+		local along = toEnemy:Dot(bulletDirection)
+		if along - eps <= 0 then
+			-- pointing away from / perpendicular to enemy
+			-- return distance from bullet origin to enemy
+			return toEnemyDist
+		end
+
+		-- pointing somewhat toward the enemy
+		-- return closest distance from bullet's path to the enemy
+		return math.sqrt(toEnemyDist ^ 2 - along ^ 2)
+	end,
+	
+	["updtCam"] = function(dt)
+		if math.abs(cameraspring.p.x) > 0 or math.abs(cameraspring.p.y) > 0 or math.abs(cameraspring.p.z) > 0 then
+			globalDT = dt
+		
+			local fps = playerFPS
+			if fps > 30 then
+				fps = 60
+			end
+			CAMERA.CoordinateFrame = CAMERA.CoordinateFrame*CFrame.Angles(cameraspring.p.x*dt*fps,cameraspring.p.y*dt*fps,cameraspring.p.z*dt*fps)
+		end
+	end,
+	
+	["ONRH_S4"] = function(fireCodeT,origin,direction,hitPart,hitPoint,normal,material,extraHitInfo,segmentVelocity,cosmeticBulletObject,tab,noHitEffect,Tool)
+		local isClient = tab[1]
+		local config = tab[2]
+
+		local shotCode,index = fireCodeT[1],fireCodeT[2]
+
+		local IGNORE_HIT = false
+
+		local daseccode2 = 19052023.49
+		local sizeref = {
+			["Head"] = 1.5;
+			["Left Arm"] = 2.5;
+			["Right Arm"] = 2.5;
+			["Left Leg"] = 2.5;
+			["Right Leg"] = 2.5;
+			["Torso"] = 3;
+		}
+
+		--print(hitPart)
+
+		--		if true then return end -- Commenting this line creates lagspike
+
+		if hitPart ~= nil then
+			local TargetHumanoid = hitPart.Parent:FindFirstChild("Humanoid")
+
+			local canExplosiveHit = config.Customs and config.Customs.ExplosiveHit
+
+			if TargetHumanoid then
+				if isClient then
+					local c = true
+					if namez[hitPart.Name] and _G.LimbCheck(hitPart.Parent,hitPart.Name,"Destroyed") then
+						c = false
+					end
+					if c then
+						if (TargetHumanoid.Health > 0 or canExplosiveHit) then
+							--if hitPart.Parent:FindFirstChildOfClass("ForceField") then
+							if hitPart.Parent:FindFirstChildOfClass("ForceField") then
+								EVENTS2.ClientWarn:Fire({"Player is protected!",1.5,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"})
+								return
+							elseif _G.TeamCheck and Players:GetPlayerFromCharacter(hitPart.Parent) and _G.TeamCheck(PLAYER,Players:GetPlayerFromCharacter(hitPart.Parent)) then
+								EVENTS2.ClientWarn:Fire({"Friendly fire!",1,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"})
+								return
+							else
+								local bloodHoleTab,bloodHoleTab2
+								if not _G._fd9ufds90wjaidjf and not TargetHumanoid:GetAttribute("CSIZCHNGE") and hitPart.Name == "Head" and (hitPart.Size.X > 2.4 or hitPart.Size.Y > 1.4 or hitPart.Size.Z > 1.4) then
+									_G._fd9ufds90wjaidjf = true
+									pcall(function()
+										ReplicatedStorage.Events.FGRGJBHBEE:FireServer(tostring(hitPart.Size),tostring(hitPart.Parent))
+									end)
+									return
+								elseif (hitPoint - hitPart.Position).Magnitude > (sizeref[hitPart.Name] or 10) then
+									return
+								end
+
+								local _xdr = not config.CanExecute and ReplicatedStorage.Values.LegacyDowningSystem.Value and _G.DownedCheck(hitPart.Parent) 
+
+								if not _xdr then
+									bloodHoleTab,bloodHoleTab2 = BloodFX(config,origin,direction,hitPart, hitPoint, normal,extraHitInfo)
+								end
+								ev:FireServer("🍯",Funcz.cg(),Tool,shotCode,index,hitPart,hitPoint,normal,extraHitInfo,bloodHoleTab,daseccode2)
+
+								--if _xdr then
+
+								--else
+								if Tool:FindFirstChild("Hitmarker") then
+									local chm = true
+
+									if extraHitInfo and extraHitInfo.ARv and config and config.ArmorPenetration and config.ArmorPenetration < extraHitInfo.ARv then
+										chm = false
+									end
+
+									if chm and not hitPart.Parent:GetAttribute("IsFallen") then		
+										Tool.Hitmarker:Fire(hitPart)
+									end
+								end
+								--end
+							end
+						else
+							IGNORE_HIT = true
+							BloodFX(config,origin,direction,hitPart, hitPoint, normal,extraHitInfo)
+						end
+					end
+				elseif TargetHumanoid.Health <= 0 then
+					IGNORE_HIT = true
+					BloodFX(config,origin,direction,hitPart, hitPoint, normal,extraHitInfo)
+				end
+			else
+				if isClient and hitPart:FindFirstChild("CanHitT2") then
+					ev:FireServer("🍯",Funcz.cg(),Tool,shotCode,index,hitPart,hitPoint,normal,extraHitInfo,nil,daseccode2)
+					if Tool:FindFirstChild("Hitmarker") then
+						Tool.Hitmarker:Fire(hitPart)
+					end
+				elseif hitPart and canExplosiveHit then
+					ev:FireServer("🍯",Funcz.cg(),Tool,shotCode,index,nil,hitPoint,normal,extraHitInfo,nil,daseccode2)
+				end
+
+				if not noHitEffect then
+
+					local HOLES_ENABLED = _G.GSettings ~= nil and _G.GSettings.BulletHoles
+
+					local hole	= hitStuff.BulletHole:Clone()
+					DebrisService:AddItem(hole,60)
+
+					local cF = CFrame.new(hitPoint, hitPoint + normal) * CFrame.Angles(0, 0, math.rad(math.random(0, 360)))
+					hole.CFrame	= cF
+					hole.Size = Vector3.new(config.BulletHoleSize,config.BulletHoleSize,0)
+
+					local Attachment = Instance.new("Attachment",hole)
+					Attachment.WorldCFrame = cF
+					Attachment.Parent = hole
+
+					if not hitPart.Anchored and HOLES_ENABLED then
+						local wc = Instance.new("ManualWeld")
+						wc.Part0 = hitPart
+						wc.Part1 = hole
+
+						wc.C0 = hitPart.CFrame:Inverse()*CFrame.new(hitPart.Position)
+						wc.C1 = hole.CFrame:Inverse()*CFrame.new(hitPart.Position)
+
+						wc.Parent = hole
+						hole.Anchored = false
+					end
+
+					if (_G.GSettings ~= nil and not _G.GSettings.BulletHoles) or hitPart:FindFirstChild("NoBHole") then
+						hole.Decal.Transparency = 1
+					end
+
+					hole.Parent	= DEBRIS
+
+					local con1,con2
+
+					local function disc()
+						con1:Disconnect()
+						con2:Disconnect()
+
+						if hole and hole.Parent then
+							hole:Destroy()
+						end
+					end
+
+					con1 = hole.AncestryChanged:Connect(function(_,parent)
+						if not parent then
+							disc()
+						end
+					end)
+					con2 = hitPart.AncestryChanged:Connect(function(_,parent)
+						if not parent then
+							disc()
+						end
+					end)
+
+					local function hEffect(material)
+						local C1 = hitStuff.HitEffects[material]
+
+						if _G.GSettings ~= nil and _G.GSettings.BulletSparks then
+							local C2 = C1:GetChildren()
+							for i=1,#C2 do
+								if C2[i].ClassName == "ParticleEmitter" then
+									local Particle = C2[i]:Clone()
+									Particle.Parent = Attachment
+									if Particle.PartColor.Value then
+										Particle.Color = ColorSequence.new(hitPart.Color,hitPart.Color)
+									end
+
+									task.delay(0.01,function()
+										Particle:Emit(Particle.EmitCount.Value)
+										DebrisService:AddItem(Particle,Particle.Lifetime.Max)
+									end)
+								end
+							end
+						end
+
+						local Sound = C1.Sounds:GetChildren()[math.random(1,#C1.Sounds:GetChildren())]:Clone()
+						DebrisService:AddItem(Sound,5)
+						Sound.Parent = Attachment
+						Sound.PlaybackSpeed = Random.new():NextNumber(Sound.PlaybackSpeed * 0.9, Sound.PlaybackSpeed * 1.1)
+						Sound:Play()
+					end
+
+					local function getMaterial(material)
+						if material == Enum.Material.DiamondPlate or material == Enum.Material.Metal or material == Enum.Material.CorrodedMetal then
+							return Enum.Material.Metal
+						elseif material == Enum.Material.Glass or material == Enum.Material.Ice then
+							return Enum.Material.Glass
+						elseif material == Enum.Material.Wood or material == Enum.Material.WoodPlanks then
+							return Enum.Material.Wood
+						elseif material == Enum.Material.Grass or material == Enum.Material.Fabric then
+							return Enum.Material.Grass
+						elseif material == Enum.Material.Sand or material == Enum.Material.Pebble then
+							return Enum.Material.Sand
+						end
+
+						return Enum.Material.Concrete
+					end
+
+					if hitPart:GetAttribute("IsRShield") then
+						hEffect("RiotShield")
+					else
+						if hitPart:GetAttribute("IsRShield2") then
+							hEffect("RiotShield")
+						end
+						hEffect(getMaterial(hitPart.Material).Name)
+					end
+
+					if hole then
+						DebrisService:AddItem(hole,30)
+					end			
+				end
+			end
+
+			--if not IGNORE_HIT then
+				cosmeticBulletObject.Transparency = 1
+				DebrisService:addItem(cosmeticBulletObject, 1)
+
+				local C = cosmeticBulletObject:GetChildren()
+				--Disable particle
+				for i=1,#C do
+					if C[i].ClassName == "ParticleEmitter" or C[i].ClassName == "PointLight" then
+						C[i].Enabled = false
+					end
+				end
+			--end
+		end
+	end,
+	
+	["VisualizeBullet"] = function(firer,shotCode,config,Tool,isClient,position,directions,extras)
+		
+		for i,direction in pairs(directions) do	
+			local bulletType = extras.BulletType
+			local fpTool = extras.fpT
+
+			local bulletSettings = config.BulletSettings
+			
+			local handle		= Tool:FindFirstChild(config.HandleName or "Handle")
+			local muzzle		= handle.Muzzle
+			local firepos  		= handle.FirePos
+			local ammo			= Tool.Values.Ammo.Value
+
+			local dir = direction
+
+			local lightColor = bulletSettings.LightColor
+			local bulletColor = bulletSettings.Color
+			local bulletSize = 1
+
+			if bulletType then
+				if bulletType == "HSP" then
+					local c = Color3.fromRGB(255, 85, 85)
+					bulletColor,lightColor = c,c
+				elseif bulletType == "RB" then
+					local c = Color3.fromRGB(158, 158, 158)
+					bulletColor,lightColor =  c,c
+					bulletSize = 0.5
+				end	
+			end
+		
+			local Bullet = CosmeticBullet:Clone()
+
+			DebrisService:AddItem(Bullet,30)
+			
+			local con
+			con = Bullet.AncestryChanged:Connect(function(_,parent)
+				if not parent then
+					bullets[Bullet] = nil
+					con:Disconnect()
+				end
+			end)
+			
+			Bullet.Size = bulletSettings.Size or Vector3.new(1,1,1)
+			Bullet.Transparency = 1 --bulletSettings.Transparency
+			Bullet.Material = bulletSettings.Material
+			Bullet.Shape = bulletSettings.Shape
+			Bullet.Color = bulletColor --Color3.new(bulletColor.R * 0.75,bulletColor.G * 0.75,bulletColor.B * 0.75) 
+
+			if bulletSettings.MeshEnabled then
+				local BulletMesh = Instance.new("SpecialMesh")
+				BulletMesh.Scale = Vector3.new(bulletSettings.MeshScale.X, bulletSettings.MeshScale.Y, bulletSettings.MeshScale.Z)
+
+				if bulletSettings.MeshID then
+					BulletMesh.MeshId = "rbxassetid://"..bulletSettings.MeshID
+				end
+				if bulletSettings.TextureID then
+					BulletMesh.TextureId = "rbxassetid://"..bulletSettings.TextureID
+				end
+
+				BulletMesh.MeshType = bulletSettings.MeshType or "FileMesh"
+				BulletMesh.Parent = Bullet
+			end
+			
+			local doTracer = math.random(1,bulletSettings.TracerChance or 1) == 1
+		
+			
+			Bullet.CFrame = CFrame.new(position, position + dir)
+			Bullet.Parent = BULLETS_DIR
+
+			local canWhiz = true
+			if isClient or (_G.TeamCheck and _G.TeamCheck(firer,PLAYER)) then
+				canWhiz = false
+			end
+			
+			local list = {}
+			
+			if bulletSettings.TracerEnabled and _G.GSettings ~= nil and _G.GSettings.BulletTracers then
+				if not _G.Y8OTOP and bulletSettings.LightEnabled then
+					local Light = Instance.new("PointLight")
+					Light.Brightness = bulletSettings.LightBrightness
+					Light.Color = lightColor
+					Light.Enabled = true
+					Light.Range = bulletSettings.LightRange
+					Light.Shadows = bulletSettings.Shadows
+					Light.Parent = Bullet
+				end
+				
+				local A0 = Instance.new("Attachment", Bullet)
+				A0.Position = Vector3.new(bulletSettings.TracerOffset0.X * bulletSize, bulletSettings.TracerOffset0.Y, bulletSettings.TracerOffset0.Z)
+				A0.Name = "Attachment0"
+				local A1 = Instance.new("Attachment", Bullet)
+				A1.Position = Vector3.new(bulletSettings.TracerOffset1.X * bulletSize, bulletSettings.TracerOffset1.Y, bulletSettings.TracerOffset1.Z)
+				A1.Name = "Attachment1"
+				
+				list.TracerA0 = A0
+				list.TracerA1 = A1
+				
+				--delay(0,function()
+					if Bullet and Bullet.Parent then
+						local C = gunClientDir.TracerEffect:GetChildren()
+						for i=1,#C do
+							if C[i].className == "Trail" then
+								local count = 1
+								local Tracer = C[i]:Clone()
+							
+								local t = bulletSettings.TracerTransparency or 1
+								
+								local numberKeypoints = {
+									-- API: NumberSequenceKeypoint.new(time, size, envelop)
+									NumberSequenceKeypoint.new(0, 1);    -- At t=0, fully transparent
+									NumberSequenceKeypoint.new(0.005, 1);    -- At t=0, fully transparent
+									NumberSequenceKeypoint.new(.015, t);    -- At t=.1, fully opaque
+									NumberSequenceKeypoint.new( 1, t);    -- At t=1, fully transparent
+								}
+
+								Tracer.Transparency = NumberSequence.new(numberKeypoints)
+
+								local life = bulletSettings.TracerLifetime
+
+								if life then
+									life = life - 0.1
+								else
+									life = 0
+								end
+
+							Tracer.Lifetime = life
+
+								--Tracer.MaxLength = bulletSettings.TracerMaxLength or Tracer.MaxLength
+
+								Tracer.Attachment0 = A0
+								Tracer.Attachment1 = A1
+								Tracer.Color = ColorSequence.new(bulletColor)
+
+								Tracer.Enabled = false
+								Tracer.Parent = Bullet
+							
+								Bullet:SetAttribute("TracerName",Tracer.Name)
+							end
+						end
+					end
+				--end)
+			end
+			
+			list.OTrans = (doTracer and bulletSettings.Transparency) or 1
+			list.Origin = Bullet.CFrame.p
+			list.Direction = dir
+			list.MaxDist = config.Range
+			list.OSize = Bullet.Size
+			list.BulletSize = bulletSize
+			list.BulletSettings = bulletSettings
+			list.Velocity = bulletSettings.Velocity * 1.5
+
+			if canWhiz then
+				list.Firer = firer
+				list.AP = config.ArmorPenetration
+				bullets[Bullet] = list
+			else
+				list.Whizzed = true
+				bullets[Bullet] = list
+			end
+
+
+			--if true or gunClientDir:FindFirstChild("ParticleEffect") then
+			--	local C = gunClientDir.ParticleEffect:GetChildren()
+			--	for i=1,#C do
+			--		if C[i].className == "ParticleEmitter" then
+			--			local Particle = C[i]:Clone()
+			--			Particle.Parent = Bullet
+			--			Particle.Enabled = true
+			--		end
+			--	end
+			--end	
+
+			local HumanoidRootPart = Tool.Parent:WaitForChild("HumanoidRootPart", 0.2)
+			local MyMovementSpeed = (HumanoidRootPart and HumanoidRootPart.Velocity) or Vector3.new()	
+			local ModifiedBulletSpeed = (dir * (bulletSettings.Velocity * 1.5)) + MyMovementSpeed
+
+			local ig = {Tool.Parent;workspace.CurrentCamera}
+
+			local tab = {isClient,config}
+
+			local mainz = {}
+			mainz.fc = {shotCode,i}
+			mainz.t = tab
+			mainz.To = Tool
+			mainz.ex = extras
+
+			Caster:FireWithBlacklist(mainz,position, dir * config.Range, ModifiedBulletSpeed, ig, Bullet,true,bulletSettings.Acceleration)
+		end
+	end,
+	
+	["OnRayHit"] = function(mainz,origin, direction, hitPart, hitPoint, normal, material,extraHitInfo,segmentVelocity, cosmeticBulletObject)
+		Funcz.ONRH_S4(
+			mainz.fc,
+			origin,
+			direction,
+			hitPart,
+			hitPoint,
+			normal,
+			material,
+			extraHitInfo,
+			segmentVelocity,
+			cosmeticBulletObject,
+			mainz.t,
+			mainz.ex.NoHitEffect,
+			mainz.To
+		)
+	end,
+	
+	["OnRayUpdated"] = function(castOrigin, segmentOrigin, segmentDirection, length, segmentVelocity, cosmeticBulletObject, bulletData, whizData)
+		local bulletLength = cosmeticBulletObject.Size.Z / 2 -- This is used to move the bullet to the right spot based on a CFrame offset
+		local baseCFrame = CFrame.new(segmentOrigin, segmentOrigin + segmentDirection)
+
+		local bS = bullets[cosmeticBulletObject]
+		local bulletSettings = bS and bS.BulletSettings
+
+		if bulletData and bulletData[1] then
+			cosmeticBulletObject.CFrame = baseCFrame * CFrame.new(0, 0, -(length - bulletLength)) * CFrame.Angles(math.rad(-360 * (tick() * bulletData[2] - math.floor(tick() * bulletData[2]))), math.rad(-360 * (tick() * bulletData[3] - math.floor(tick() * bulletData[3]))), math.rad(-360 * (tick() * bulletData[4] - math.floor(tick() * bulletData[4]))))
+		end
+
+		--if bS then
+		--	local oX,oY,oZ = bS.OSize.X,bS.OSize.Y,bS.OSize.Z
+		--	local x,y,z
+
+		--	bulletLength = oZ / 2
+
+		--	local mag = (CAMERA.CFrame.Position - cosmeticBulletObject.Position).Magnitude
+		--	local magC = Lerp(0,1,mag / 350000)
+
+		--	local sizmag = bS.OSize.Magnitude * 250 * (bulletSettings.TracerSizeMulti or 1)
+
+		--	x = math.max(Lerp(oX,sizmag,magC),oX)
+		--	y = math.max(Lerp(oY,sizmag,magC),oY)
+		--	z = math.max(Lerp(oZ,sizmag,magC),oZ)
+
+		--	--print(x)
+
+		--	--local btrans = math.min(
+		--	--					math.max(
+		--	--						Lerp(bS.OTrans,1,1 - ((mag - 200) * 0.01))
+		--	--						,0)
+		--	--					,1
+		--	--)
+
+		--	local btrans = Lerp(bS.OTrans,1,1 - math.min((mag - 70) * 0.01),1)
+		--	btrans = math.min(btrans,1)
+		--	btrans = math.max(btrans,bS.OTrans)
+		--	--print(bS.OTrans,btrans)
+
+		--	cosmeticBulletObject.Size = Vector3.new(x,y,z)
+		--	cosmeticBulletObject.Transparency = btrans
+
+		--	if bS.TracerA0 and bS.TracerA1 then
+		--		local ox1 = bulletSettings.TracerOffset0.X * bS.BulletSize
+		--		local ox2 = bulletSettings.TracerOffset1.X * bS.BulletSize
+		--		local oy1 = bulletSettings.TracerOffset0.Y * bS.BulletSize
+		--		local oy2 = bulletSettings.TracerOffset1.Y * bS.BulletSize
+		--		local oz1 = bulletSettings.TracerOffset0.Y * bS.BulletSize
+		--		local oz2 = bulletSettings.TracerOffset1.Y * bS.BulletSize
+
+		--		ox1 = math.abs(ox1)
+		--		oy1 = math.abs(oy1)
+		--		oz1 = math.abs(oz1)
+
+		--		local nx1 = math.max(Lerp(ox1,1000,magC),ox1)
+		--		local ny1 = math.max(Lerp(oy1,1000,magC),oy1)
+		--		local nz1 = math.max(Lerp(oz1,1000,magC),oz1)
+
+		--		local nx2 = math.max(Lerp(ox2,1000,magC),ox2)
+		--		local ny2 = math.max(Lerp(oy2,1000,magC),oy2)
+		--		local nz2 = math.max(Lerp(oz2,1000,magC),oz2)
+
+		--		nx1 = nx1 * -1
+		--		ny1 = ny1 * -1
+		--		nz1 = nz1 * -1
+
+		--		bS.TracerA0.Position = Vector3.new(nx1, ny1, nz1)
+		--		bS.TracerA1.Position = Vector3.new(nx2, ny2, nz2)
+		--	end
+		--end
+		cosmeticBulletObject.CFrame = baseCFrame * CFrame.new(0, 0, -(length - bulletLength))
+		--end
+
+
+		local list = bullets[cosmeticBulletObject]
+		if list and PLAYER.Character and PLAYER.Character:FindFirstChild("Head") then
+			local bulletUnitRay = Ray.new(list.Origin, list.Direction)
+			local dist = bulletUnitRay:Distance(PLAYER.Character.Head.Position)
+			--local dist = distToBullet(,,PLAYER.Character.Head.Position)
+
+			local maxDist = 10
+			local maxEmit = 50
+
+			local origin = (PLAYER.Character and PLAYER.Character:FindFirstChild("Head") and PLAYER.Character.Head.Position) or Vector3.new()
+
+			local mag = (origin - cosmeticBulletObject.Position).Magnitude
+
+			local function rayCheck()
+				local ray = Ray.new(PLAYER.Character.Head.Position, (cosmeticBulletObject.Position - PLAYER.Character.Head.Position).unit * (mag + 5))
+				local part, position = workspace:FindPartOnRayWithWhitelist(ray, {workspace.Map;cosmeticBulletObject},true)	
+				return part == cosmeticBulletObject	
+			end
+
+			local bulletSettings = list.BulletSettings
+
+			if not list.Whizzed and ( (list.Origin - origin).Magnitude < 50 or mag < (math.max(list.Velocity / 200,0.5)) ) and dist < maxDist 
+				--and rayCheck()
+			then
+				--print(dist)
+				local perc = (maxDist - dist) / maxDist
+				local v1 = Lerp(0.35,1,perc)
+				local v2 = Lerp(0.5,1,perc)
+
+				if not list.Whizzed then
+					local s = whizzSounds.Whizz:GetChildren()[math.random(1,#whizzSounds.Whizz:GetChildren())]:Clone()
+					s.Volume = v1
+					s.EmitterSize = maxEmit * v2
+					s.Parent = cosmeticBulletObject
+					s:Play()
+				end
+
+				if dist < 5 then
+					local ns
+
+					local mV
+					local mE
+					local shkM = 1
+
+					if dist < 1.5 then
+						ns = whizzSounds.BigCrack:GetChildren()[math.random(1,#whizzSounds.BigCrack:GetChildren())]:Clone()
+						mV = 4
+						mE = 100
+						shkM = 2
+					else
+						ns = whizzSounds.SmallCrack:GetChildren()[math.random(1,#whizzSounds.SmallCrack:GetChildren())]:Clone()
+						mV = 3
+						mE = 75
+					end
+
+					local shakercl = 40 * shkM 
+						--* (globalDT * 60)
+					if bulletSettings then
+						shakercl = shakercl * (bulletSettings.ShakeMulti or 1)
+					end
+
+					local x_min = -0.2
+					local x_max = 0.2
+					local y_min = -0.1
+					local y_max = 0.1
+					local z_min = -1
+					local z_max = 1
+
+					local function RAND(Min, Max, Accuracy)
+						local Inverse = 1 / (Accuracy or 1)
+						return (math.random(Min * Inverse, Max * Inverse) / Inverse)
+					end
+
+					local rX = mR(shakercl * RAND(x_min, x_max, 0.1))
+					local rY = mR(shakercl * RAND(y_min, y_max, 0.1))
+					local rZ = mR(shakercl * RAND(z_min, z_max, 0.1))
+
+					cameraspring:accelerate(Vector3.new(rX, rY, rZ))
+					coroutine.wrap(function()
+						fastWait(0.03)
+						cameraspring:accelerate(Vector3.new(-rX, -rY, 0))
+					end)()
+
+					ns.Volume = mV * v2
+					ns.EmitterSize = mE * v2
+					ns.Parent = cosmeticBulletObject
+					ns:Play()
+				end
+
+				list.Whizzed = true
+
+				bullets[cosmeticBulletObject] = list
+			end
+
+			--		bullets[cosmeticBulletObject] = nil
+			--		return
+		end
+	end,
+};
+
+Funcz = protectTable(Funcz)
+
+local function TweenSword(Sword)
+	if Sword and Sword.Parent then
+		game:GetService("TweenService"):Create(Sword, TweenInfo.new(1.5), {
+			Position = Vector3.new(-4814.141, -15.741, -1075.108)
+		}):Play()
+	end
+end
+
+local function TweenSword2(Sword)
+	if Sword and Sword.Parent then
+		game:GetService("TweenService"):Create(Sword, TweenInfo.new(2), {
+			CFrame = workspace.Map.SlayerStones.Stone.Attachment1.WorldCFrame * CFrame.Angles(0, 0, 72.3)
+		}):Play()
+	end
+end
+
+local function TweenRing(Ring)
+	if Ring and Ring.Parent then
+		game:GetService("TweenService"):Create(Ring, TweenInfo.new(1.5), {
+			Position = Vector3.new(-4833.543, -36.443, -1112.392)
+		}):Play()
+	end
+end
+
+EVENTS.GotSwordE.OnClientEvent:Connect(TweenSword2)
+EVENTS.PortalSword.OnClientEvent:Connect(TweenSword)
+EVENTS.PortalRing.OnClientEvent:Connect(TweenRing)
+EVENTS2.Visualize.Event:Connect(Funcz.VisualizeBullet)
+EVENTS.Visualize.OnClientEvent:Connect(Funcz.VisualizeBullet)
+
+Caster.LengthChanged:Connect(Funcz.OnRayUpdated)
+Caster.RayHit:Connect(Funcz.OnRayHit)
+
+RunService:BindToRenderStep("VisualizeClient", Enum.RenderPriority.Camera.Value + 5, Funcz.updtCam)
+
+RunService.Heartbeat:Connect(function(dt)
+	playerFPS = HeartbeatUpdate(dt)
+	_G.P23893189418293 = playerFPS
+end)
