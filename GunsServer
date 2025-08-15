@@ -1,0 +1,2700 @@
+local ReplicatedStorage		= game:GetService("ReplicatedStorage")
+local ServerScriptService	= game:GetService("ServerScriptService")
+local ServerStorage 		= game:GetService("ServerStorage")
+local RunService			= game:GetService("RunService")
+local Workspace				= game:GetService("Workspace")
+local Players				= game:GetService("Players")
+local TweenService =		  game:GetService("TweenService")
+
+local SERVER_CONFIG = {
+	DoErrorMessage = false;
+	Prints = false;
+
+	ReverseDmg = false;
+
+	PassoverEnabled = false;
+	PassoverMulti = 0.8;
+
+	LimbDmgMulti = 1.15; -- old 1.6
+	
+	DownedDmgDiv = 1.8;
+
+	--PingSync_Max = 300;
+};
+
+if not RunService:IsStudio() then
+	wait(0.1)
+end
+
+ReplicatedStorage:WaitForChild("GameLoaded",100)
+
+local REMOTES	= ReplicatedStorage.Events
+local MODULES	= ReplicatedStorage:WaitForChild("Modules")
+local EVENTS	= ReplicatedStorage:WaitForChild("Events")
+local EVENTS2	= ReplicatedStorage:WaitForChild("Events2")
+local EVENTS3	= ServerStorage:WaitForChild("Events3")
+
+local CONFIG	= require(MODULES.Config)
+local DAMAGE	= require(MODULES.Damage)
+local EFFECTS 	= require(MODULES.Effects)
+local SkinsHandlerM = require(ServerScriptService.Game.SkinsHandler)
+
+local PingTimes = require(MODULES.PingTimes)
+
+-- variables
+
+local defaultPlayerTab = {
+	alive = false;
+	shots = {};
+	latencyCount = 0;
+	updateCount = 0;
+	currentTabCode = 0;
+	ExploitCount = 0;
+	fRCount = 0; -- firerate
+}
+
+local playerTabs = {}
+local sCodes = {}
+local downDBs = {}
+local guns = {}
+
+local GetModelMassModule = require(MODULES.GetModelMass)
+local RayHandler = require(MODULES.RayHandler)
+local m6dhandler = require(MODULES.GunMotor6DHandler)
+
+local NewGunEvent = EVENTS3:FindFirstChild("NewGun")
+
+local ToolModules = ServerStorage:FindFirstChild("ToolModules")
+
+
+local CONFIGS = {}
+for _,v in pairs(ToolModules.Guns:GetChildren()) do
+	if v.ClassName == "ModuleScript" then
+		CONFIGS[v.Name] = require(v)
+	end	
+end
+
+
+local AA_Module =		_G.AntiExploitModule
+local MinigunModule =	require(MODULES:FindFirstChild("Effects"):FindFirstChild("Minigun"))
+
+local function Round(to_round,n)
+	local divided = to_round / n
+	local rounded = n * math.floor(divided)
+	return rounded
+end
+
+-- functions
+
+local function lookAt(target, eye)
+	local forwardVector = (eye - target).Unit
+	local upVector = Vector3.new(0, 1, 0)
+	-- You have to remember the right hand rule or google search to get this right
+	local rightVector = forwardVector:Cross(upVector)
+	local upVector2 = rightVector:Cross(forwardVector)
+
+	return CFrame.fromMatrix(eye, rightVector, upVector2)
+end
+
+--local print = function(...) 
+--	if SERVER_CONFIG.Prints then
+--		local n = "GunServer: " 
+--		for i,v in next,{...} do 
+--			n = n .. " | " .. tostring(v)
+--		end 
+--		print(n)
+--	end
+--end
+
+local function getValueStr(s)
+	local r = 0
+	for c in s:gmatch'.' do
+		r = r + c:byte()
+	end
+
+	return r or 0
+end
+
+local deepCopy = require(MODULES.DeepCopy)
+
+local SCM = {
+	['IntSalt'] = 21231,
+	['UserIdSalt'] = false,
+	["MaxDt"] = 50000,
+
+	DownedKill_Leeway = 0.06;
+	Ragdoll_Leeway = 0.06;
+}
+
+local function getDt(p, d)
+	local Data = d + (SCM.IntSalt+(SCM.UsernameSalt and getValueStr(tostring(p)) or 0) + (SCM.UserIdSalt and p.UserId/2 or 0))
+	
+	return ReplicatedStorage.Values.ServerTick.Value - Data
+end
+
+--local fireClientsNum = 0
+--local serverEventNum = 0
+--function FireClientFunc(n)
+--	fireClientsNum = fireClientsNum + (n and n or 1)
+--	delay(60,function()
+--		fireClientsNum = fireClientsNum - (n and n or 1)
+--	end)
+--end
+--function OnServerEventTing()
+--	serverEventNum = serverEventNum + 1
+--	delay(60,function()
+--		serverEventNum = serverEventNum - 1
+--	end)	
+--	--warn("SE:" .. tostring(serverEventNum) .. " | " .. "CE: " .. fireClientsNum)
+--end
+
+local function ShadowCheck(plr)
+	local pd = plr and _G.GetPlayerData(plr)
+	if plr and pd and pd.Shadowed.Value then
+		return true
+	end
+
+	return false
+end
+
+local function AddXP(player,xp)
+	ServerStorage.Events3.AyuP:Fire("KLJ8902209SANK8234LDFG0OKJAKA984231ZZ04LGXBNBZ1U912",player,xp)
+end
+
+function CheckPlayer(Tool,Player,m)
+	if ((Tool.Parent:FindFirstChild("Humanoid") and Tool.Parent == Player.Character) or (m == 2 and Player == Tool.Parent.Parent)) then
+		return true
+	end	
+	return false
+end
+
+local function DamageJoint(...)
+	_G.DamageJoint(...)
+end
+
+local function GetCustomSkinModule(tool,originalConfig,appliedSkin,n)
+	local customServerConfig = SkinsHandlerM.GetSkinCustomModule(appliedSkin,n or "ServerConfig",deepCopy(originalConfig),tool)
+	return customServerConfig
+end
+
+--local function GetPing(player,noLeeway)
+--	local maxLeeway = SERVER_CONFIG.PingSync_Max
+--	local originPlayerPing = PingTimes[player]
+
+--	local playerPing = originPlayerPing
+--	if not noLeeway then
+--		playerPing = math.floor((math.min(originPlayerPing * 1000,maxLeeway) / 1000) * 1000) / 1000
+--	end
+--	return playerPing
+--end
+
+local function DoLatencyLog(player)
+	local playerTab = playerTabs[player]
+
+	if playerTab then
+		playerTab.latencyCount = playerTab.latencyCount + 1
+		playerTabs[player] = playerTab
+
+		local code = playerTab.currentTabCode
+
+		task.delay(5,function()
+			local playerTab = playerTabs[player]
+			if playerTab and playerTab.currentTabCode == code then
+				playerTab.latencyCount = playerTab.latencyCount -1
+			end
+			playerTabs[player] = playerTab
+		end)
+	end
+end
+
+local function FireExploitLog(player,text,doKick)
+	if playerTabs[player] then
+		if playerTabs[player].ExploitCount > 20 then
+			return
+		end
+	end
+
+	playerTabs[player].ExploitCount += 1 
+	local code = playerTabs[player].currentTabCode
+	task.delay(10,function()
+		if playerTabs[player] and playerTabs[player].currentTabCode == code then
+			playerTabs[player].ExploitCount -= 1 
+		end
+	end)
+
+	ServerStorage.Events3.qUE_exPOTLOG:Fire("ZKLFXG890ZDFGJKN43SU8IOG",player.Name,"Server tamper | gun: " .. text,1,true)
+
+	if doKick then
+		wait(math.random(1,10))
+		player:Kick("Attempted to bypass script whitelist.")
+	end
+end
+
+REMOTES.GNX_S.OnServerEvent:Connect(function(player,securityCode,shotCode,Tool,mode,position,directions,exa)
+	local didTakeAmmo = false
+	local function Do()
+		local Dt = getDt(player, tonumber(securityCode) or 0)
+
+		if Dt > SCM.MaxDt then
+			return false,"0",true
+		end
+
+		if ShadowCheck(player) then
+			return false ,"1.1"
+		end
+
+		local playerTab = playerTabs[player]
+
+		if not playerTab then
+			return false,"1.2"
+		end
+
+		if not player.Character or not player.Character:FindFirstChild("Humanoid")
+			--or player.Character.Humanoid.Health <= 0 
+		then return false,"1" end
+		if not playerTab.shots then return false,"2" end
+
+		if not guns[Tool] or (guns[Tool] and (guns[Tool].Tool ~= Tool)) then return false,"3" end
+
+		if not CheckPlayer(Tool,player,1) then return false,"4" end
+
+		if not _G.AliveCheck(player.Character,SCM.DownedKill_Leeway) or (not player.Character:FindFirstChild("Right Arm"))  then
+			return false,"4.5"
+		end
+
+		if playerTab.shots[shotCode] then return false,"5" end
+
+		--local config	= CONFIGS[Tool.Name]
+		local gotGunT = guns[Tool]
+		
+		local config = gotGunT.config
+
+		local Handle =	Tool:FindFirstChild(config.HandleName or "Handle")
+		local Values =	Tool.Values
+
+		--local playerPing = GetPing(player)
+
+		local lastShot = gotGunT.LastShotT
+
+		local shotCalc = (tick() + 0.05) - lastShot
+		shotCalc = math.floor(shotCalc * 10000) / 10000
+		--shotCalc = shotCalc + playerPing
+
+		--print("ping: " .. playerPing .. " | " .. "shotcalc: " .. shotCalc  .. " | fr: " ..  (1 / config.FireRate))	
+
+		guns[Tool].LastShotT = tick()
+
+		local fireRate = config.FireRate
+		if config.FireModeSettings then
+			if config.FireModeSettings.CanSwitch then
+				if config.FireModeSettings.SwitchTo == "Burst" then
+					fireRate = config.FireModeSettings.BurstRate  
+				end
+				if config.FireModeSettings.SemiRate and config.FireModeSettings.SemiRate > fireRate then
+					fireRate =  config.FireModeSettings.SemiRate
+				end
+			end
+		end
+
+		local _vF = _G.GVF(player.Name)
+		local spm = (_vF and _vF.Currents:FindFirstChild("RL_SPM") and _vF.Currents["RL_SPM"].Value) or 1
+
+
+		--print((tick() + 0) - lastShot,1/fireRate)
+
+		fireRate *= spm
+
+		if shotCalc < (1 / fireRate) then
+			print(player.Name .. ": " .. "fire rate hacks? " .. (1 / fireRate),shotCalc)
+
+			playerTabs[player].fRCount += 1
+			task.delay(10,function()
+				if playerTabs[player] then
+					playerTabs[player].fRCount = math.max(playerTabs[player].fRCount - 1,0)
+				end
+			end)
+
+			if playerTabs[player].fRCount > 10 then
+				local txt = "(POSSIBLE) fire rate exploit | " .. Tool.Name .. " attempted to fire " .. math.floor( (((1 / fireRate)  / shotCalc) * 100) + 0.5 ) / 100 .. "x faster than fire rate"
+
+				--print(txt)
+
+				--FireExploitLog(player,txt)
+
+				--player:Kick("AE: AMBER!") 
+				--return
+			end
+
+			playerTab = playerTabs[player]
+
+			Values.SERVER_Ammo.Value	= Values.SERVER_Ammo.Value - 1
+
+			--local txt = "possible fire rate exploit | " .. Tool.Name .. " attempted to fire" .. math.floor( (((1 / fireRate)  / shotCalc) * 1000) + 0.5 ) / 1000 .. "x faster than fire rate"
+
+			--FireExploitLog(player,txt)
+
+			return false,"5.2",true
+		end
+		
+
+		if exa then
+			if config.BulletTypeChange and config.BulletTypeChange.Enabled and (exa == config.BulletTypeChange.M1 or exa == config.BulletTypeChange.M2) then
+				--
+			elseif config.Customs and config.Customs["UnderbarrelLauncher"] and config.Customs["UnderbarrelLauncher"].Enabled and exa == true then
+				--
+			elseif config.Customs and config.Customs["MGL_Stuff"] then
+				--
+			else
+				exa = nil
+			end
+
+			--if not config.BulletTypeChange or not config.BulletTypeChange.Enabled or (exa ~= config.BulletTypeChange.M1 and exa ~= config.BulletTypeChange.M2) then
+			--	exa = nil
+			--end
+		end
+		
+		local chosenAmmoValue = Values.SERVER_Ammo
+		
+		local isUnderbarrelGLShot = false
+		
+		if gotGunT.hasUnderbarrelLauncher and exa then
+			chosenAmmoValue = Values.SERVER_Ammo2
+			isUnderbarrelGLShot = true
+		end
+		
+		local cAmmo = chosenAmmoValue.Value
+		if cAmmo <= 0 then return false,"5.5" end
+
+		if Tool.Values.Reloading.Value then return false,"5.6" end
+
+		chosenAmmoValue.Value = chosenAmmoValue.Value - 1
+		didTakeAmmo = true
+
+		local character	= player.Character
+		local rootPart	= character.HumanoidRootPart
+		local humanoid	= character.Humanoid
+
+		if mode == "FDS9I83" and not _G.RagdollCheck(player.Character,SCM.Ragdoll_Leeway) and not _G.DownedCheck(player.Character,SCM.DownedKill_Leeway) then
+			if not playerTab.alive then return false,"6" end
+			--if AA_Module and not AA_Module:CheckTing(player.Character) then return end
+			--local isRubber = exa and config.BulletTypeChange and config.BulletTypeChange.Enabled and exa == "RB"
+
+			if (rootPart.Position - position).Magnitude < 20 then
+				if not isUnderbarrelGLShot and not gotGunT.launcherEnabled and #directions == config.BulletsPerShot then
+
+					if config.MinigunEnabled and Handle.Muzzle:FindFirstChild("FireLoop") and not Handle.Muzzle.FireLoop.Playing then
+						Handle.Muzzle.FireLoop:Play()
+						Handle.Muzzle.FireStart:Play()
+					end
+
+					--_G.ZaWarudoWait()
+
+					local shot	= {
+						Tool		= Tool;
+						Config		= config;
+						Position	= position;
+						Directions	= directions;
+						starthps = {};
+						TotalPassoverDmg = 0;
+					}
+
+
+					shot.BulletType = exa
+
+					playerTabs[player].shots[shotCode] = shot
+					task.delay(3,function()
+						_G.ZaWarudoWait()
+						task.wait()
+						if playerTabs[player] and playerTabs[player].shots then
+							playerTabs[player].shots[shotCode] = nil
+						end
+					end)
+
+					local extras = {}
+					extras.BulletType = exa
+					extras.NoHitEffect = config.BulletSettings.NoHitEffect
+
+					for _,v in pairs(Players:GetPlayers()) do
+						if v ~= player then
+							REMOTES.Effect:FireClient(v,"Shoot",player,nil,nil,Tool, position,directions,extras)
+						end
+					end
+
+					local c = math.random()
+					sCodes[Tool] = c
+
+					if config.MinigunEnabled then
+						task.delay(1,function()
+							if Handle.Parent and sCodes[Tool] == c and Handle.Muzzle:FindFirstChild("FireLoop") and Handle.Muzzle.FireLoop.Playing then
+								Handle.Muzzle.FireLoop:Stop()
+								Handle.Muzzle.FireStop:Play()
+								Handle.Muzzle.FireStart:Stop()
+							end								
+						end)
+					end
+
+					return true
+				elseif config.GrenadeLauncherEnabled then
+					local s = Handle.Muzzle.FireSound:Clone()
+					game.Debris:AddItem(s,Handle.Muzzle.FireSound.TimeLength)
+					s.Parent = Handle.Muzzle
+					s.PlaybackSpeed = s.PlaybackSpeed * (math.random(90,110) / 100)
+					s:Play()
+					
+					if Handle.Muzzle:FindFirstChild("Smoke") then
+						Handle.Muzzle.Smoke:Emit(20)
+					end
+
+					if _G.MonitorSound then
+						_G.MonitorSound(Handle.Muzzle.FireSound,Handle.Muzzle.FireSound.TimeLength,20,1,1,0.25)
+					end
+
+					local Grenade = ServerStorage.Projectiles.GrenadeLauncherGrenade:Clone()
+					Grenade.CFrame = CFrame.new(position,directions[1])
+					--Grenade.Anchored = false
+					Grenade.Velocity = (Grenade.CFrame.LookVector + Vector3.new(0,-0,0)) * (Grenade:GetMass() * config.GrenadeSpeed)
+
+					local f = Instance.new("BodyForce")
+					f.Force = Vector3.new(0,Grenade.Velocity.Magnitude * config.GrenadeUpForceMulti,0)
+					f.Parent = Grenade
+
+					local g = Instance.new("BodyGyro")
+					g.CFrame = Grenade.CFrame
+					g.MaxTorque = Vector3.new(10e10,10e10,0)
+					g.Parent = Grenade
+
+					local a = Instance.new("BodyAngularVelocity")
+					a.MaxTorque = Vector3.new(0,0,10e10)
+					a.AngularVelocity = Vector3.new(0,config.GrenadeRotVel,0)
+					a.Parent = Grenade
+
+					local Sound = Grenade.Sound
+					Sound:Play()
+					Sound.Pitch = math.random((Sound.Pitch * 100) * 0.9,(Sound.Pitch * 100) * 1.1) / 100
+					Sound.TimePosition = 0.3
+
+					Grenade.Parent = workspace.Debris.VParts
+
+					task.delay(30,function()
+						_G.ZaWarudoWait()
+						task.wait()
+						_G.ZaWarudoWait()
+						if Grenade and Grenade.Parent then
+							Grenade:Destroy()
+						end
+					end)
+
+					if _G.CombatTagChar then
+						_G.CombatTagChar(player,100,"ROK")
+					end
+
+					Grenade:SetNetworkOwner(player)
+
+					local teamColor = player.TeamColor
+
+					local Landed = false
+					local function Hit(CF)
+						if Landed or not (Grenade and Grenade.Parent) then return end
+						Landed = true
+						Grenade.CFrame = CF or Grenade.CFrame
+						Grenade.Anchored = true
+						Grenade.MainPart.Transparency = 1
+						Grenade.MainPart.Part.Transparency = 1
+
+						local ExplodePart = ServerStorage.Projectiles.GrenadeLauncher_Explosion:Clone()
+
+						if exa and config.Customs and config.Customs["MGL_Stuff"] and exa > 1 and exa <= #config.Customs["MGL_Stuff"] then
+							ExplodePart:Destroy()
+							ExplodePart = ServerStorage.Projectiles.GrenadeLauncher_Custom:Clone()
+							ExplodePart.NameVal.Value = config.Customs["MGL_Stuff"][exa]
+						else
+							ExplodePart:Destroy()
+							local n = (config.Customs["MGL_Stuff"][exa] == "Explosive" and "GrenadeLauncher_Explosion") or "GrenadeLauncher_Explosion2"
+							ExplodePart = ServerStorage.Projectiles[n]:Clone()
+						end		
+
+						ExplodePart.Creator.Value = player
+						local toolV = ExplodePart.Creator:FindFirstChild("Tool")
+						if not toolV then
+							toolV = Instance.new("StringValue")
+							toolV.Name = "Tool"
+							toolV.Parent = ExplodePart.Creator
+						end
+
+						if teamColor then
+							local v = Instance.new("BrickColorValue")
+							v.Name = "TeamColor"
+							v.Value = teamColor
+							v.Parent = ExplodePart
+						end
+
+						toolV.Value = Tool.Name
+
+						ExplodePart.CFrame = CFrame.new(Grenade.Position + Vector3.new(0,1,0))
+						ExplodePart.Parent = workspace.Debris
+						ExplodePart.Main.Disabled = false
+
+						Grenade.MainPart["0"].Smoke.Enabled = false
+						wait(1)
+						Grenade:Destroy()
+					end
+
+					--wait()
+
+					local x = REMOTES.ProjectileHandle:InvokeClient(player,Grenade)
+					--_G.ZaWarudoWait()
+					Hit(x)
+					return true
+				elseif config.RocketLauncherEnabled or isUnderbarrelGLShot then
+					ReplicatedStorage.Events.Effect:FireAllClients("RocketFireEffect",player,Handle,isUnderbarrelGLShot)
+
+					if Handle:FindFirstChild("Rocket") then
+						Handle.Rocket.Transparency = 1
+						if Handle.Rocket:FindFirstChild("X") then
+							Handle.Rocket.X.Transparency = 1
+							if Tool.Handle.Rocket.X:FindFirstChild("Union") then
+								Tool.Handle.Rocket.X.Union.Transparency = 1
+							end
+						end
+					end
+
+					local startT = tick()
+
+					if _G.CombatTagChar then
+						_G.CombatTagChar(player,100,"ROK")
+					end
+					
+					local _c2 = config
+
+					local fireSound = Handle.Muzzle:FindFirstChild("FireSound")
+					
+					if isUnderbarrelGLShot then
+						_c2 = config.Customs["UnderbarrelLauncher"]
+						fireSound = Handle.Muzzle:FindFirstChild("FireSound_GL")
+					end
+					
+					if fireSound and _G.MonitorSound then
+						_G.MonitorSound(fireSound,fireSound.TimeLength,20,1,1,0.25)
+					end
+
+					local Rocket = ServerStorage.Projectiles[_c2.RocketName]:Clone()
+					
+					local appliedSkin = Tool:GetAttribute("AppliedSkin")
+					local customRocketApply,customExplosionApply
+					if appliedSkin then
+						local limitedHolder = Tool:GetAttribute("LimitedHolder")
+						if not (limitedHolder and player.Name ~= limitedHolder) then
+							customRocketApply = GetCustomSkinModule(Tool,CONFIGS[Tool.Name],appliedSkin,"RocketApply")
+							customExplosionApply = GetCustomSkinModule(Tool,CONFIGS[Tool.Name],appliedSkin,"ExplosionApply")
+						end
+					end
+					
+					--Rocket.Rocket.Anchored = true
+					--Rocket.CFrame = CFrame.new(position,directions[1]) * CFrame.new(0,0,0)
+
+					task.delay(120,function()
+						_G.ZaWarudoWait()
+						task.wait()
+						if Rocket and Rocket.Parent then
+							Rocket:Destroy()
+						end
+					end)
+					local chosenCF = CFrame.new(position,directions[1]) * CFrame.new(0,0,0)
+
+					local f = Instance.new("BodyForce")
+					f.Force = Vector3.new(0,_c2.RocketUpForce,0)
+					f.Parent = Rocket
+
+					local rotAmt = _c2.RocketRotVel
+					if math.random(1,2) == 1 then
+						rotAmt = -rotAmt
+					end
+					rotAmt = rotAmt * math.random(90,130) / 100
+
+					local rotPart = Rocket:FindFirstChild("RotPart") or Rocket
+
+					--local g = Instance.new("BodyGyro")
+					--g.CFrame = chosenCF
+					--g.MaxTorque = Vector3.new(10e10,10e10,0)
+					--g.Parent = rotPart
+
+					local a = Instance.new("BodyAngularVelocity")
+					a.MaxTorque = Vector3.new(10e10,10e10,10e10)
+					a.AngularVelocity = Vector3.new(0,0,0)
+					a.Parent = rotPart
+					
+					
+
+					local Sound = Rocket:FindFirstChild("Sound")
+					if Sound then
+						Sound:Play()
+						Sound.Pitch = math.random((Sound.Pitch * 100) * 0.9,(Sound.Pitch * 100) * 1.1) / 100
+					end
+					
+					if Handle:FindFirstChild("Rocket") and Handle.Rocket:FindFirstChild("X") then
+						if Rocket:FindFirstChild("Rocket") then
+							Rocket.Rocket.TextureID = Handle.Rocket.X.TextureID
+						end
+					end
+					
+					if customRocketApply then
+						customRocketApply.Parent = Rocket
+					end
+
+					Rocket.Parent = workspace.Debris.VParts
+
+					Rocket.CFrame = chosenCF
+					Rocket.Velocity = (Rocket.CFrame.LookVector) * _c2.RocketSpeed
+
+					Rocket.RotVelocity = Vector3.new(0,0,0)
+					rotPart.RotVelocity = Vector3.new(0,0,0)
+
+					local rotVelocity = chosenCF:VectorToWorldSpace(Vector3.new(0, 0, rotAmt))
+
+					TweenService:Create(a,TweenInfo.new(_c2.RotStartTime,Enum.EasingStyle.Quart,Enum.EasingDirection.In),{AngularVelocity = rotVelocity}):Play()
+
+					pcall(function()
+						character.DisplayItems[Tool.Name].Parts.Torso.Model.Handle.Rocket.X.OriginTrans.Value = 1
+					end)
+
+					pcall(function()
+						Rocket:SetNetworkOwner(player)
+					end)
+					
+					if customRocketApply then
+						local _s,_e = pcall(function()
+							require(customRocketApply).new(Tool,Rocket)
+						end)
+					end
+
+					local teamColor = player.TeamColor
+					
+					local Landed = false
+					local function Hit(CF,pos,normal,hitPart)
+						if Landed or not (Rocket and Rocket.Parent) then return end
+						if hitPart and (not hitPart:IsA("BasePart") or not hitPart.Parent) then
+							return
+						end
+						
+						CF = CF or Rocket.CFrame
+						pos = pos or Rocket.Position
+
+						Landed = true
+						game.Debris:AddItem(Rocket,10)
+						Rocket.CFrame = CF
+						Rocket.Anchored = true
+
+						if Rocket:FindFirstChild("EffectA") then
+							for _,v in pairs(Rocket.EffectA:GetChildren()) do
+								if v:IsA("ParticleEmitter") or v:IsA("Trail") or v:IsA("PointLight") or v:IsA("SurfaceLight") or v:IsA("SpotLight") then
+									v.Enabled = false
+								end
+							end
+						end
+
+						for _,v in pairs(Rocket:GetDescendants()) do
+							if v:IsA("BasePart") then
+								v.Anchored = true
+								v.Transparency = 1
+							end
+						end
+
+						if Rocket:FindFirstChild("HitE") then
+							Rocket.HitE:Fire()
+						end
+
+						local expName = _c2.ExplosionName
+
+						local isUnder = false
+
+						if _c2.DistExplosionType and _c2.DistExplosionType.Enabled then
+							if (position - pos).Magnitude < _c2.DistExplosionType.UnderDist then
+								isUnder = true
+								expName = _c2.DistExplosionType.ExplosionName
+							end
+						end
+
+						local ExplodePart
+
+						if exa and config.Customs and config.Customs["MGL_Stuff"] then
+							if exa > 1 and exa <= #config.Customs["MGL_Stuff"] then
+								ExplodePart = ServerStorage.Projectiles.GrenadeLauncher_Custom:Clone()
+								ExplodePart.NameVal.Value = config.Customs["MGL_Stuff"][exa]
+							else
+								local isExplosive = (config.Customs["MGL_Stuff"] and (config.Customs["MGL_Stuff"][exa] == "Explosive" or config.Customs["MGL_Stuff"][exa] == "Explosive2")) or not config.Customs["MGL_Stuff"]
+
+								local n
+								if isExplosive then
+									n = config.ExplosionName or "GrenadeLauncher_Explosion"
+								else
+									n = config.Customs["MGL_Stuff"][exa]
+								end
+
+								if isExplosive and _c2.DistExplosionType and _c2.DistExplosionType.Enabled then
+									if (position - pos).Magnitude < _c2.DistExplosionType.UnderDist then
+										n = _c2.DistExplosionType.ExplosionName
+									end
+								end
+
+								ExplodePart = ServerStorage.Projectiles[n]:Clone()
+							end
+						else
+							ExplodePart = ServerStorage.Projectiles[expName]:Clone()
+						end
+						
+						if customExplosionApply then
+							customExplosionApply.Parent = ExplodePart
+						end
+
+						if teamColor then
+							local v = Instance.new("BrickColorValue")
+							v.Name = "TeamColor"
+							v.Value = teamColor
+							v.Parent = ExplodePart
+						end
+
+						ExplodePart.Creator.Value = player
+						local toolV = ExplodePart.Creator:FindFirstChild("Tool")
+						if not toolV then
+							toolV = Instance.new("StringValue")
+							toolV.Name = "Tool"
+							toolV.Parent = ExplodePart.Creator
+						end
+						toolV.Value = Tool.Name
+
+						if ExplodePart:FindFirstChild("Delay") and _c2.ExplosionDelay then
+							ExplodePart.Delay.Value = _c2.ExplosionDelay
+						end
+
+						if ExplodePart:FindFirstChild("DelayMulti") and _c2.ExplosionDelayMulti then
+							ExplodePart.DelayMulti.Value = _c2.ExplosionDelayMulti
+						end
+
+						if ExplodePart:FindFirstChild("HitPart") then
+							ExplodePart.HitPart.Value = hitPart
+						end
+
+
+						local acf = CFrame.n
+						local lcf = (pos and normal and (CFrame.new(pos, pos + normal) * CFrame.Angles(math.rad(-90),0,0)) * CFrame.new(0,0.5,0)) or CFrame.new(Rocket.Position)
+						ExplodePart.CFrame = lcf
+						ExplodePart.Parent = workspace.Debris
+						ExplodePart.Main.Disabled = false
+
+
+						--Rocket.Rocket["0"].Smoke.Enabled = false
+						if Sound.Parent then
+							Sound:Stop()
+						end
+					end
+
+					local doAccel = _c2.DistExplosionType and _c2.DistExplosionType.Enabled and _c2.DistExplosionType.AccelerationM
+					local doneAccel = false
+
+					coroutine.wrap(function()
+						repeat task.wait(0.1)
+							local mag = (Rocket.Position - position).Magnitude
+
+							if Landed then
+								break
+							end
+
+							if mag >= _c2.RocketMaxRange then
+								break
+							elseif doAccel and not doneAccel and mag >= _c2.DistExplosionType.UnderDist and Rocket:FindFirstChild("Custom") then
+								doneAccel = true
+								coroutine.wrap(function()
+									require(Rocket.Custom)()
+								end)()
+							end
+
+						until Landed or tick() - startT >= (_c2.RocketMaxTime or 60)
+
+						if not Landed then
+							Hit()
+						end
+					end)()
+
+					--wait()
+					--print(player,Rocket)
+
+					pcall(function()
+						local cf,pos,normal = REMOTES.ProjectileHandle:InvokeClient(player,Rocket)
+						_G.ZaWarudoWait()
+						Hit(cf,pos,normal)
+					end)
+
+					return true		
+				elseif config.Customs and config.Customs.Snowball then
+					local sbS = config.Customs.Snowball
+
+					local cf = CFrame.new(position,directions[1]) * CFrame.new(0,0,0)
+					local vel = cf.LookVector * sbS.Velocity
+
+					local s = Handle.Muzzle.FireSound:Clone()
+					game.Debris:AddItem(s,Handle.Muzzle.FireSound.TimeLength)
+					s.Parent = Handle.Muzzle
+					s.PlaybackSpeed = s.PlaybackSpeed * (math.random(90,110) / 100)
+					s:Play()
+
+					if Handle:FindFirstChild("RocketMuzzle") then
+						Handle.RocketMuzzle.Smoke:Emit(25)
+					end
+					if Handle.Muzzle:FindFirstChild("Smoke") then
+						Handle.Muzzle.Smoke:Emit(25)
+					end
+
+					game.ServerStorage.Events3.SNOWBALLERXD:Fire(player,cf,vel,sbS.UpVecP,sbS.Size,sbS.RotVel,config.Range,config.Damage,Tool.Name)
+
+
+					return true
+				else
+					return false,"7"
+				end
+			else
+				return false,"8"
+			end
+		else
+			return false,"9.1"
+		end	
+	end
+
+	local success,num = Do()
+	if not success then
+		num = tostring(num)
+
+		print("ERROR1: 1_" .. tostring(num),tostring(player))
+
+		DoLatencyLog(player,Tool)	
+
+		if guns[Tool]
+		then
+			if didTakeAmmo and guns[Tool].Values then
+				guns[Tool].Values.SERVER_Ammo.Value	= guns[Tool].Values.SERVER_Ammo.Value + 1
+			end
+			if guns[Tool].DoSync then
+				guns[Tool].DoSync()
+			end
+		end
+
+		if SERVER_CONFIG.DoErrorMessage then
+			EVENTS.ClientWarn:FireClient(player,{"Error validating: code 1_" .. tostring(num),0.5,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"}) 
+		end
+	end
+end)
+
+
+local function checkWallHit(player,startPos,hitPos,hitPart)
+	local mag = (hitPos - startPos).Magnitude
+
+	local ig = {workspace.Map.Doors}
+	if player and player.Character then
+		table.insert(ig,player.Character)
+	end
+
+	local function doRay()
+		local ray = Ray.new(startPos, (hitPos - startPos).Unit * mag,false,true)
+		local obj, pos, normal = RayHandler.CastRay(ray,ig,{type = "g"})
+		--local obj, pos, normal = workspace:FindPartOnRayWithIgnoreList(ray, ig)
+		--if obj then
+		--	if 
+		--		not  obj:FindFirstChild("CanHitT") and
+		--			(
+		--				obj.Name == "HumanoidRootPart"
+		--				or obj.Parent:IsA("Tool")
+		--				or obj.Parent.Parent:IsA("Tool") 
+		--				or (obj:IsDescendantOf(workspace.Characters) and (obj.Name ~= "Head" and obj.Name ~= "Torso" and obj.Name ~= "Left Arm" and obj.Name ~= "Right Arm" and obj.Name ~= "Left Leg" and obj.Name ~= "Right Leg"))
+		--				or obj.Transparency >= 1 
+		--				or obj:IsDescendantOf(workspace.Debris)
+		--				or obj:IsDescendantOf(workspace.Filter)
+		--				or obj:FindFirstChild("RayIgnore")
+		--			)
+		--	then
+		--		table.insert(ig,obj)
+		--		return doRay()
+		--	end
+		--end
+
+		local mag2 = math.min((pos - hitPos).Magnitude,mag)
+		local maxMag = 25 + (hitPart.Velocity.Magnitude)
+
+		--print(obj,maxMag)
+
+		if mag2 >= maxMag then
+			--print("error with checkwallhit: mag: " .. math.floor(mag2 * 100 / 100),tostring(obj),maxMag)
+		end
+
+		return mag2 < maxMag
+	end
+
+	return doRay()
+end
+
+local function ExplosiveHit(config,player,hit,pos,normal,Tool)
+	local ExplodePart = ServerStorage.Projectiles[config.Customs.ExplosiveHit.Type]:Clone()
+
+	ExplodePart.Creator.Value = player
+	local toolV = ExplodePart.Creator:FindFirstChild("Tool")
+	if not toolV then
+		toolV = Instance.new("StringValue")
+		toolV.Name = "Tool"
+		toolV.Parent = ExplodePart.Creator
+	end
+	toolV.Value = Tool.Name
+
+	ExplodePart.CFrame = CFrame.new(pos + config.Customs.ExplosiveHit.Offset)
+	ExplodePart.Parent = workspace.Debris
+
+	coroutine.wrap(function()
+		RunService.Heartbeat:Wait()
+		ExplodePart.Main.Disabled = false
+	end)()
+end
+
+local function OnHitFunc(player,Tool,shotCode,index,hit,pos,normal,extraHitInfo,placeTable)
+	local isAI = player and player:GetAttribute("IsAI") == true
+
+	local playerTab = playerTabs[player]
+	if not playerTab and not isAI then return false,"10" end
+	if not guns[Tool] or (guns[Tool] and (guns[Tool].Tool ~= Tool)) then return "11" end
+	--if not CheckPlayer(Tool,player) then return false,"12" end
+
+	local shot = (isAI and shotCode) or playerTab.shots[shotCode]
+
+	if shot then
+		local character
+		if player:IsA("Player") then
+			character = player.Character
+		else
+			character = player
+			player = nil
+		end
+
+		local config	= shot.Config
+
+		if typeof(pos) ~= "Vector3"
+			or typeof(normal) ~= "Vector3"
+			or typeof(index) ~= "number"
+		then
+			return false,"14"
+		end
+
+		if typeof(hit) ~= "Instance" or not hit.Parent then
+			if config.Customs and config.Customs.ExplosiveHit then
+
+				local position	= shot.Position
+				local direction	= shot.Directions[index]
+
+				if not position or not direction then return false,"15-2" end
+
+				local ray		= Ray.new(position, direction)
+				local distance	= (pos - position).Magnitude
+
+				if distance <= config.Range * 1.25 and distance > config.Customs.ExplosiveHit.MinRange then --and (not h) then
+					ExplosiveHit(config,player,hit,pos,normal,Tool)
+				end	
+			end
+
+			return
+		end
+		
+		local hChar = hit.Parent
+		local hPlayer = Players:GetPlayerFromCharacter(hChar)
+		local hHumanoid	= hChar:FindFirstChild("Humanoid")
+		
+		
+		if hChar:GetAttribute("IsFallen", true) then
+			return false
+		end
+
+		if not (hit and hit.Parent) then 
+			return false,"142"
+		end
+
+		local position	= shot.Position
+		local direction	= shot.Directions[index]
+
+		if not position or not direction then return false,"15" end
+
+		local canExplosiveHit = (config.Customs and config.Customs.ExplosiveHit)
+
+		if hHumanoid and ((hHumanoid.Health > 0) and (player and (not _G.RagdollCheck(player.Character,1) and not _G.DownedCheck(player.Character,1))) or canExplosiveHit) then
+			if (isAI or DAMAGE:PlayerCanDamage(player, hHumanoid)) or not player then
+				_G.ZaWarudoWait()
+				local bulletType = shot.BulletType
+
+				if not isAI and not canExplosiveHit and (placeTable and typeof(placeTable) ~= "table") or (placeTable and (typeof(placeTable[1]) ~= "string" or typeof(placeTable[2]) ~= "UDim2" or typeof(placeTable[3]) ~= "Vector2"))
+					--or (	placeTable2 and not (typeof(placeTable2) == "table") or (placeTable2 and ( not typeof(placeTable2[1]) == "string" or not typeof(placeTable2[2]) == "UDim2" or not typeof(placeTable2[3]) == "Vector2"	)))
+				then
+					ServerStorage.Events3.qUE_exPOTLOG:Fire("ZKLFXG890ZDFGJKN43SU8IOG",player.Name,"Server tamper: " .. "Attempted to modify gun hitcasting | 2",1,true)
+					return false,"16"
+				end
+
+				local ray		= Ray.new(position, direction)
+				local distance	= (hit.Position - position).Magnitude
+
+				if distance <= config.Range * 1.25 then --and (not h) then	
+					local offset	= ray:Distance(hit.Position)
+
+					if (pos - hit.Position).Magnitude > 25 then
+						return false,"17"
+					end
+
+					local serverHitCheck = isAI or checkWallHit(player,position,pos,hit)
+
+					if not serverHitCheck then
+						return false,"18"
+					end
+
+					if isAI or offset < 500 then
+						if SERVER_CONFIG.ReverseDmg and not isAI then
+							hHumanoid = player.Character:FindFirstChild("Humanoid")
+							hit = player.Character[hit.Name]
+							hChar = player.Character
+							hPlayer = player
+						end
+
+						if hHumanoid.Health > 0 or canExplosiveHit  then
+							if not shot.starthps[hHumanoid] then
+								shot.starthps[hHumanoid] = hHumanoid.Health
+								if playerTab then
+									playerTab.shots[shotCode] = shot
+								end
+							end
+
+							local sstartHP = shot.starthps[hHumanoid]	
+							local isRubber = false
+							local hitVF = _G.GVF(hChar.Name)
+							local knockedChar = false
+
+							local function ForceChar(gonnaKill,p1,p2,perc,loldidshotdown)
+								task.delay(0.1,function()
+									if hChar.Parent and hit.Parent and _G.SMains and (hit.Velocity.Magnitude < 30 or (config.Customs and config.Customs.ForceKnockback)) then
+										local force = (CFrame.new(p1,p2).LookVector) + Vector3.new(0,config.KnockbackUpVec and config.KnockbackUpVec or 1.25,0)
+
+										local ye = false
+
+										local n = 1.5
+										local n2 = 1
+
+										if not gonnaKill and (_G.RagdollCheck(hChar,0.25) or _G.DownedCheck(hChar,0.25)) then	
+											n = 0.5
+											n2 = 0.65
+											--force = force * 0.75
+											force = Vector3.new(force.X * 0.15,force.Y * 1,force.Z * 0.15)
+
+											if hit.Name == "Head" then
+												n = n * 1.5
+											elseif hit.Name ~= "Torso" then
+												n = n * 1.5
+											end
+										elseif hit.Name == "Head" then
+											n = n * 1.5
+										elseif hit.Name ~= "Torso" then
+											n = n * 1.5
+										end
+
+										force = force * (config.Knockback * perc)			
+
+										if hitVF then
+											force = force * hitVF.WeightProof.Value * 0.1 * GetModelMassModule(hChar)
+										end
+
+										local vel = hChar.HumanoidRootPart.Velocity
+
+										local x = math.min(vel.X / 3,250)
+										x = math.max(vel.X / 3,-25)
+
+										local y = 0
+
+										local z = math.min(vel.Z / 3,25)
+										z = math.max(vel.Z / 3,-25)
+
+										vel = Vector3.new(x,y,z)
+										
+										--force = force:Lerp(Vector3.new(),0.025)
+										--if not loldidshotdown then
+										--	force = force:Lerp(Vector3.new(),0.2)
+										--end
+										
+										force = force:Lerp(Vector3.new(),0.05)
+										
+										n /= 50
+										
+										if config.Customs and config.Customs.KnockbackNMulti then
+											n *= config.Customs.KnockbackNMulti
+										end
+
+										_G.SMains.ForceT(hit,force,n)
+									end
+								end)
+							end
+
+							local isArmored,armorDmgMulti,armorStable = _G.SMains.IsArmored(hChar,hit.Name)	
+
+							local basedmg,perc	= DAMAGE:Calculate(shot.Tool, hit, pos,character.HumanoidRootPart.Position,config)
+							--print(basedmg,perc)
+
+							local damage = basedmg
+							local absorbeddmg = 0
+
+							local loldidshotdown = shot.DidDown
+
+							local aP = config.ArmorPenetration or 0.5
+
+							local armorBP = 1
+
+							local noActualDamage = false -- from when you hit for example rcu armopr
+
+							if isArmored and armorStable then
+
+								if aP then
+									damage = damage * aP
+								end
+
+								absorbeddmg = basedmg - damage
+
+								if armorDmgMulti then
+									damage = damage * armorDmgMulti
+								end
+
+								if extraHitInfo and extraHitInfo.HIP and typeof(extraHitInfo.HIP) == "Instance" then -- hit armor plate
+									if extraHitInfo.HIP:IsDescendantOf(hChar) and extraHitInfo.HIP:GetAttribute("ARv") and extraHitInfo.HIP:GetAttribute("ARv") > aP then
+										--print("NO ACTUAL DAMAGE!")
+										noActualDamage = true
+									else
+										extraHitInfo = nil
+									end
+								else
+									extraHitInfo = nil
+								end
+
+								--warn("ap: " .. aP)										
+							else
+								absorbeddmg = basedmg - damage
+							end
+
+							if hitVF then
+								armorBP = hitVF.BulletProof[hit.Name].Value
+								damage = damage * armorBP
+
+								for _,v in pairs(hitVF.Currents:GetChildren()) do
+									if v.Name == "DRSTNCE" then
+										damage = damage * v.Value
+									end
+								end
+							end
+
+							if config.Customs and config.Customs.NecroDmgMulti and hitVF:GetAttribute("IsNecro") then
+								damage *= config.Customs.NecroDmgMulti
+							end
+							
+							if config.Customs and config.Customs.FallenDmgMulti and hitVF:GetAttribute("IsFallen") then
+								damage *= config.Customs.FallenDmgMulti
+							end
+
+							local didBreakArmor = false
+
+							local isLegacyDowned = false
+
+							local downed = _G.DownedCheck(hChar)
+							local gonnaKill = hHumanoid.Health - damage <= 15 and not downed
+
+							damage = damage * _G.GetDmgMulti1(hChar)
+
+							if not config.CanExecute and ReplicatedStorage.Values.LegacyDowningSystem.Value then
+								isLegacyDowned = hHumanoid.Health - damage < 1 or downed
+								if hHumanoid.Health > 1 and hHumanoid.Health - damage <= 0 then
+									damage = hHumanoid.Health - 0.9
+								elseif downed then
+									damage /= 300
+								end
+							end
+
+							if isArmored and armorStable and not isLegacyDowned then
+								local typ = (hit.Name == "Head" and "Head") or "Body"
+
+								local done,brokearmor = _G.SMains.DamageArmor(hChar,typ,absorbeddmg * (config.ArmorDmgMulti or 1),player)
+
+								didBreakArmor = done and brokearmor
+							end
+							--and not downed
+
+							if _G.TagChar then
+								if downed and not config.CanExecute then
+									if not _G.DownedCheck(hChar,1) then
+										--print("DOASSIST",player)
+										_G.AssistChar(hChar,player,30,Tool.Name,(pos - shot.Position).Magnitude)
+									end
+									--_G.AssistChar(hChar,player,30,Tool.Name,(pos - shot.Position).Magnitude)
+								else
+									--print("DOTAG",player)
+									_G.TagChar(hChar,player,30,15,nil,Tool.Name,(pos - shot.Position).Magnitude)
+								end
+							end
+
+							--if hHumanoid:FindFirstChild("creator") then
+							--	hHumanoid.creator.Value = player
+							--end
+
+							if _G.CombatTagChar then
+								_G.CombatTagChar(player,30,"GN")
+							end
+
+							local function CanExecuteC()
+								return (shot.Tool:FindFirstChild("CanExecute") or config.CanExecute) and not isRubber
+							end
+
+							local force
+							local x1 = shot.Position
+							local x2 = pos
+							x1 = Vector3.new(x1.X,0,x1.Z)
+							x2 = Vector3.new(x2.X,0,x2.Z)	
+
+							knockedChar = gonnaKill
+
+							if not noActualDamage and ( _G.RagdollCheck(hChar) or gonnaKill) then
+								ForceChar(gonnaKill,x1,x2,perc,loldidshotdown)																		
+							end
+
+							for _,v in pairs(Players:GetPlayers()) do
+								if v ~= player and not isLegacyDowned then
+									REMOTES.Effect:FireClient(v,"Damage",player,"Place",shot.Position,shot.Directions[index],hit,pos,normal,extraHitInfo,placeTable,nil, config.Blood,config.BulletHoleSize,isArmored and armorStable,basedmg)
+								end
+							end
+
+							if didBreakArmor then
+								if Tool:FindFirstChild("Hitmarker2") then
+									Tool.Hitmarker2:FireClient(player,"AR")
+								end
+								for _,v in pairs(Players:GetPlayers()) do
+									REMOTES.Effect:FireClient(v,"ArmorBreak",player,hit,hHumanoid,shot.Directions[index],pos,normal)
+								end
+							end
+
+							if bulletType == "RB" and config.BulletTypeChange and config.BulletTypeChange.Enabled then
+								isRubber = true
+								damage = damage / config.BulletTypeChange[bulletType .. "_Reduction"]
+								if hHumanoid.Health - damage < 1 then
+									damage = hHumanoid.Health - 1
+								end
+							end
+
+							local dmgDiv2 = 1
+							local dmgDiv3 = 1
+
+							if _G.DownedCheck ~= nil and downed then
+								if CanExecuteC() then
+									--DAMAGE:Damage(hHumanoid, damage / config.DownedDiv, player)
+									dmgDiv2 = config.DownedDiv
+									--											local xp = damage / 2
+									--											xp = math.max(xp,5)
+									--											if hit and hit.Name == "Head" then
+									--												xp = xp * 1.5
+									--											end
+									--											xp = math.min(Round(xp,5),100)
+									--											game.ServerStorage.Events3.AyuP:Fire(player,xp)										
+								else
+									--dmgDiv2 = 2
+									dmgDiv2 = SERVER_CONFIG.DownedDmgDiv
+
+									if isArmored then
+										dmgDiv2 = dmgDiv2 * 1.25
+										dmgDiv3 = dmgDiv3 * 1.25
+									end
+
+									if config.DownedDmgMulti then
+										dmgDiv2 = dmgDiv2 / config.DownedDmgMulti
+									end
+
+									if isRubber then
+										dmgDiv2 = dmgDiv2 * 3
+										dmgDiv3 = dmgDiv3 * 3
+									else
+										if isLegacyDowned then
+											dmgDiv2 = 1
+										end
+									end
+
+									--if _G.DownedCheck(hChar,1) then
+									--	--dmgDiv2 = dmgDiv2 * 2
+									--end
+
+									--DAMAGE:Damage(hHumanoid, damage / 5, player)
+								end
+
+								--if shot.DidDown and hHumanoid == shot.DidDown then
+								--	--damage = 0
+								--end
+							end
+
+							if not noActualDamage and not downed or config.Passover2 then
+								if ((config.Passover2 and downed) or not (shot.DidDown and downed)) and hHumanoid.Health - damage <= 15
+									--and not CanExecuteC() 
+								then
+									if not config.NoPassover and not isRubber then
+										local pdmg = damage * (config.PassoverMulti or 1) * (isArmored and (armorBP * aP) or 1) * perc
+										pdmg = math.min(pdmg,config.PassoverCap or 1000)
+
+										local ddd = ((sstartHP - pdmg) / 1) * SERVER_CONFIG.PassoverMulti
+										ddd = -ddd
+										ddd = math.max(ddd,0)
+
+										shot.DidDown = hHumanoid
+
+										--if not (hit.Name == "Head" or hit.Name == "Torso") then
+										shot.TotalPassoverDmg += ddd
+										--end
+										if playerTab then
+											playerTab.shots[shotCode] = shot
+										end
+										if hit.Name ~= "Head" and hit.Name ~= "Torso" then
+											ddd = ddd / 2
+										end
+										--print("yyeyeaddeddown",ddd)
+
+										--print("brr",shot.TotalPassoverDmg)
+
+										if SERVER_CONFIG.PassoverEnabled or config.ForcePassover then
+											hHumanoid:SetAttribute("downdmg",shot.TotalPassoverDmg)
+										end
+									end
+
+									--if not config.CanExecute then
+									damage = hHumanoid.Health - 14
+									--end
+
+									--print("GS",sstartHP,pdmg,damage)
+
+									local xp = math.min(damage,100)
+									xp = xp * 0.7
+
+									xp = math.max(xp,5)
+									if hit and hit.Name == "Head" then
+										--xp = xp * 1.5
+									end
+									xp = math.min(Round(xp,5),100)
+
+									if not downDBs[hHumanoid] and player then
+										AddXP(player,xp)
+										ServerStorage.Events3.nBount:Fire("KLGHJRKR90U3893KJZDGNKDFZJKNWU9023JKWRG02",player,20)
+
+										downDBs[hHumanoid] = true
+										task.delay(30,function()
+											downDBs[hHumanoid] = nil
+										end)
+									end
+								end
+								--print(damage,hit,math.floor((hit.Position - player.Character.HumanoidRootPart.Position).Magnitude))								
+							end
+
+							local doHeadConcussion = false
+
+							if hit.Name ~= "Torso" and not noActualDamage and not isLegacyDowned then
+								local canBreak = true
+
+								local xMulti = 1.6
+
+								local limbDamageT = config.Customs and config.Customs.LimbDamage2
+								local customLimbBreakTyp = limbDamageT and ((hit.Name == "Head" and limbDamageT.HeadBreakType) or limbDamageT.LimbBreakType)
+
+								if hit.Name == "Head"  then
+									if not (limbDamageT and limbDamageT.HeadBreakType) then
+										xMulti = 0.5
+										canBreak = false
+									else
+										xMulti = xMulti * (limbDamageT.HeadMultiplier or 1)
+									end
+
+									if isArmored and armorStable then
+										doHeadConcussion = true
+									end
+								end
+								if limbDamageT then
+									xMulti = xMulti * (limbDamageT.Multiplier or 1)
+								end
+
+								if isArmored and armorStable then
+									xMulti = xMulti * 0.5
+								end
+
+								if config.Customs and config.Customs.NecroDmgMulti and hitVF:GetAttribute("IsNecro") then
+									xMulti *= config.Customs.NecroDmgMulti
+								end
+								
+								if config.Customs and config.Customs.FallenDmgMulti and hitVF:GetAttribute("IsFallen") then
+									xMulti *= config.Customs.FallenDmgMulti
+								end
+
+								local function cDmg()
+									local dd = ((hit.Name == "Left Leg" or hit.Name == "Right Leg") and config.LimbMultiplier) or 1
+									return ((basedmg / dd / dmgDiv3) * SERVER_CONFIG.LimbDmgMulti) * xMulti * armorBP * perc
+								end
+
+								local da = false
+
+								local gDmg = cDmg()
+
+								if not canBreak and hitVF then
+									local daHP = hitVF.HealthValues[hit.Name].Value
+
+									if daHP - gDmg < 10 then
+										gDmg = daHP - 10
+									end
+								end
+
+								DamageJoint(hit,hChar,gDmg,customLimbBreakTyp or "BoneBreak",nil,nil,player)
+							end
+
+							if loldidshotdown and config.DidDownMulti then
+								--print("YAAHHH")
+								dmgDiv2 = dmgDiv2 * config.DidDownMulti
+							end
+
+							if dmgDiv2 ~= 0 and not noActualDamage then
+								--print(loldidshotdown,config.DidDownMulti,damage,dmgDiv2,damage * dmgDiv2)
+								if hit.Name == "Head" and not noActualDamage and hHumanoid.Health - damage <= 15 and hHumanoid:GetAttribute("Infected_ExplodeHead") then
+									if (config.Customs and config.Customs["Infected_ExplodeHead"]) or (aP >= 0.4 and damage >= 26) then
+										DamageJoint(hit,hChar,1000,"Explode",nil,nil,player)
+									end
+								end
+								
+								if Tool.Name=="Taser" then
+									if hChar:FindFirstChild("Taze") then
+										hChar.Taze.Duration.Value+=1
+										_G.SMains.RagdollChar(hChar,1.5)
+									else
+										local TS=ServerStorage.Tools.Taze:Clone()
+										TS.Duration.Value=3
+										TS.Parent=hChar
+									end
+								end
+
+								DAMAGE:Damage(hHumanoid, damage / dmgDiv2, player)
+							end
+
+
+
+							if hPlayer and doHeadConcussion then
+								local timeScale = math.min(basedmg * 0.015,1)
+								EVENTS.ShellShock:FireClient(hPlayer,perc,timeScale,aP,nil,true,timeScale,0)
+							end
+
+							if _G.FlinchChar and not noActualDamage and not hHumanoid:GetAttribute("NoFlinchSD") then
+								local x = not (config.RocketLauncherEnabled or config.GrenadeLauncherEnabled)
+								local t = (not downed and config.FlinchTime) or 2
+								_G.FlinchChar(hChar,hHumanoid,t,false,x,true)
+							end
+							
+							if Tool:GetAttribute("trickshot", true) and _G.DownedCheck(hChar,0) and not isLegacyDowned then
+								local jose = math.random(3,6)
+								if jose == 3 then
+									local max = script.moggedicon:Clone()
+									max.Enabled = true
+									max.Parent = hChar.Torso
+									local mati = script.moggedsound:Clone()
+									mati.Parent = hChar.Torso
+									mati:Play()
+									wait(5)
+									mati:Stop()
+									max.Enabled = false
+								end
+								if jose == 4 then
+									local max = script.MLGicon:Clone()
+									max.Enabled = true
+									max.Parent = hChar.Torso
+									local mati = script.MLGsound:Clone()
+									mati.Parent = hChar.Torso
+									mati:Play()
+									wait(5)
+									mati:Stop()
+									max.Enabled = false
+								end
+								if jose == 5 then
+									local max = script.sanicicon:Clone()
+									max.Enabled = true
+									max.Parent = hChar.Torso
+									local mati = script.sanicsound:Clone()
+									mati.Parent = hChar.Torso
+									mati:Play()
+									wait(5)
+									mati:Stop()
+									max.Enabled = false
+								end
+								if jose == 6 then
+									local max = script.NLicon:Clone()
+									max.Enabled = true
+									max.Parent = hChar.Torso
+									local mati = script.NLhit:Clone()
+									mati.Parent = hChar.Torso
+									mati:Play()
+									wait(5)
+									mati:Stop()
+									max.Enabled = false
+								end
+							end
+
+							if config.Customs and config.Customs.ExplosiveHit and distance > config.Customs.ExplosiveHit.MinRange then
+								ExplosiveHit(config,player,hit,pos,normal,Tool)
+							end
+							
+							if config.Customs and config.Customs.FlameHit then
+								local sc = ServerStorage.Storage.Scripts.BurningScript:Clone()
+								--sc.IsFrostbite.Value = true
+								sc.Time.Value = config.Customs.FlameHit.Time
+								sc.Dmg.Value = config.Customs.FlameHit.DPS
+
+								sc.Parent = hChar
+								sc.Disabled = false
+							end
+
+							--player.Character.Humanoid.Health = player.Character.Humanoid.Health + (damage / 4)			
+
+							if not noActualDamage and (hit.Name == "Head" or hit.Name == "Left Arm" or hit.Name == "Right Arm" or hit.Name == "Left Leg" or hit.Name == "Right Leg") then
+								if config.Customs and config.Customs["LimbDamage"] then
+									local ld = config.Customs.LimbDamage
+
+									local dmg = ld.Dmg
+
+									dmg = dmg * (armorStable and hitVF.BulletProof[hit.Name].Value) * perc
+
+									if hit.Name == "Head" then
+										dmg = dmg * config.HeadshotMultiplier
+									elseif hit.Name == "Left Leg" or hit.Name == "Right Leg" then
+										dmg = dmg * config.LimbMultiplier
+									end
+
+									local BreakType = ""
+
+									if hit.Name == "Head" then
+										BreakType = ld.HeadBreakType
+									else
+										BreakType = ld.LimbBreakType
+									end
+
+									DamageJoint(hit,hChar,dmg,BreakType,nil,nil,player)
+
+									if _G.Scream then
+										_G.Scream(hChar,hChar["Head"],"Scream" .. math.random(1,5))
+									end
+								end
+							end
+
+							shot.Directions[index] = nil
+
+							local numDir	= 0
+							for _, v in pairs(shot.Directions) do
+								if v then
+									numDir	= numDir + 1
+								end
+							end
+
+							if numDir == 0 and playerTabs[player] then	
+								playerTabs[player].shots[shotCode] = nil
+							end	
+
+							--if Tool:FindFirstChild("Hitmarker2") then
+							--	Tool.Hitmarker2:FireClient(player,hit)
+							--end
+
+							return true													
+						else
+							return true,"dead"
+						end
+					else
+						return false,"19"
+					end
+				else
+					return false,"20"
+				end
+			end
+		elseif hit:FindFirstChild("CanHitT") and hit:FindFirstChild("OnHitEvent") then
+			if hit:GetAttribute("ExplosiveHitOnly") == true and not (canExplosiveHit) then
+				return
+			end
+
+			local damage,perc	= DAMAGE:Calculate(shot.Tool, hit, pos,shot.Position)
+			hit.OnHitEvent:Fire(damage,pos,normal,player,canExplosiveHit)
+
+			return true
+		else
+			return true,"no hum?" .. (hit and tostring(hit.Name) or nil)
+		end
+	else		
+		return false,"21"
+	end
+
+	return false,"22"
+end
+
+REMOTES.ZFKLF_H.OnServerEvent:Connect(function(player,securityCode_Main,securityCode,Tool,shotCode,index,hit,pos,normal,extraHitInfo,placeTable,securityCode2)
+	spawn(function() -- spawn to avoid race conditions
+		if securityCode_Main ~= "🍯" then
+			ServerStorage.Events3.qUE_exPOTLOG:Fire("ZKLFXG890ZDFGJKN43SU8IOG",player.Name,"Server tamper | gun: " .. "Attempted to modify gun hitcasting-1",1,true)
+			--wait(1)
+			--player:Kick("Attempted to bypass script whitelist.")
+			task.delay(1,function()
+				pcall(function()
+					player:Destroy()
+					task.wait()
+					player:Kick()
+				end)
+			end)
+			return
+		end
+
+		if securityCode2 ~= 19052023.49 then
+			ServerStorage.Events3.qUE_exPOTLOG:Fire("ZKLFXG890ZDFGJKN43SU8IOG",player.Name,"Server tamper | gun: " .. "Attempted to modify gun hitcasting-2",1,true)
+		end
+
+		local Dt = getDt(player, tonumber(securityCode) or 0)
+
+		if Dt > SCM.MaxDt then
+			return false,"10.9"
+		end	
+
+		local success,num = OnHitFunc(player,Tool,shotCode,index,hit,pos,normal,extraHitInfo,placeTable)
+
+		if not success then
+			print("ERROR2: " .. player.Name .. ": 2_" .. tostring(num))
+
+			DoLatencyLog(player,Tool)	
+
+			if SERVER_CONFIG.DoErrorMessage then
+				EVENTS.ClientWarn:FireClient(player,{"Error validating: code 2_" .. tostring(num),0.5,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"})
+			end
+		end
+	end)
+end)
+
+EVENTS3.AI_GunHit.Event:Connect(OnHitFunc)
+
+REMOTES.GNX_R.OnServerEvent:connect(function(player,securityCode, mode,Tool,code,extras)
+	local Dt = getDt(player, tonumber(securityCode) or 0)
+
+	if Dt > SCM.MaxDt then
+		return
+	end	
+
+	if ShadowCheck(player) then
+		return
+	end
+	
+	local function Do()
+		if not guns[Tool] or (guns[Tool] and (guns[Tool].Tool ~= Tool)) then return false,"24" end
+		if not CheckPlayer(Tool,player,2) then return false,"25" end
+
+		local character	= player.Character
+
+		local equippedTool = character:FindFirstChildOfClass("Tool")
+
+		--local Config		= CONFIGS[Tool.Name]
+
+		local gunTable = guns[Tool]
+		
+		local Config = gunTable.config
+		
+		local chosenAmmoValue = Tool.Values.SERVER_Ammo
+		local chosenStoredAmmoValue = Tool.Values.SERVER_StoredAmmo
+		
+		local _c2 = Config
+		local isSecondaryReloadM = false
+		
+		if extras and extras.isUnderbarrelReload and gunTable.hasUnderbarrelLauncher then
+			chosenAmmoValue = Tool.Values.SERVER_Ammo2
+			chosenStoredAmmoValue = Tool.Values.SERVER_StoredAmmo2
+			
+			_c2 = Config.Customs["UnderbarrelLauncher"]
+			
+			isSecondaryReloadM = true
+		end
+
+		local vF = _G.GVF(player.Name)
+
+		if character and (chosenStoredAmmoValue.Value > 0 or (Config.Customs and Config.Customs.SnowReload)) and chosenAmmoValue.Value < _c2.MagSize then	
+			if mode == "STZNRD" and not gunTable.Reloads[code] and not Tool.Values.Reloading.Value then
+				if _c2.ShotgunSettings and _c2.ShotgunSettings.ShotgunReload then
+					return true
+				end
+
+				guns[Tool].Reloads[code] = true
+				guns[Tool].ReloadStart = tick()
+				Tool.Values.Reloading.Value = true
+
+				task.delay(_c2.ReloadTime,function()
+					if guns[Tool] and guns[Tool].Reloads[code]  then
+						guns[Tool].Reloads[code] = nil
+						Tool.Values.Reloading.Value = false
+					end
+				end)
+
+				if Tool:FindFirstChild("Handle") and Tool.Handle:FindFirstChild("ReloadA") then
+					local x = Tool.Handle.ReloadA:Clone()
+					x.Name = "ReloadA_Clone_Server"
+					x.Parent = Tool.Handle
+					game.Debris:AddItem(x,10)
+				end
+
+				local function CheckTing()
+					return guns[Tool] and guns[Tool].Reloads[code]
+				end
+
+				local cancelled = false
+				local function Cancel()
+					if not cancelled then
+						cancelled = true
+						for _,v in pairs(Players:GetPlayers()) do
+							if v ~= player then
+								REMOTES.Effect:FireClient(v,"ReloadCancel",player,Tool)
+							end
+						end
+					end
+				end
+
+				local brk_m = 1
+				local RL_TIME = _c2.ReloadTime
+
+				if  _G.LimbCheck(character,"Left Arm","Broken") then
+					brk_m = brk_m / 1.15
+				end
+				if _G.LimbCheck(character,"Right Arm","Broken") then
+					brk_m = brk_m / 1.15
+				end
+
+				if vF.Currents:FindFirstChild("RL_SPM") then
+					brk_m = brk_m * vF.Currents.RL_SPM.Value
+					RL_TIME = RL_TIME / vF.Currents.RL_SPM.Value
+				end
+				
+				for _,v in pairs(Players:GetPlayers()) do
+					if v ~= player then
+						--REMOTES.Effect:FireClient(v,"Reload",player,Tool,nil,nil,brk_m)
+						REMOTES.Effect:FireClient(v,"Reload", player,Tool,true,1,"R",brk_m,isSecondaryReloadM)
+					end
+				end
+
+				local t = tick()
+				while tick() - t < RL_TIME do
+					if not CheckTing() then
+						Cancel()
+						break
+					end
+					task.wait(0.2)
+				end
+				--end
+
+				if guns[Tool] then
+					guns[Tool].Reloads[code] = nil
+				end
+
+				return true
+			elseif mode == "KLWE89U0" then
+				if _c2.ShotgunSettings and _c2.ShotgunSettings.ShotgunReload then
+					chosenAmmoValue.Value = chosenAmmoValue.Value + 1
+					chosenStoredAmmoValue.Value = chosenStoredAmmoValue.Value - 1
+
+					--print("SG_REload")
+
+					Tool.Values.Reloading.Value = false
+
+					if Tool:FindFirstChild("Handle") and Tool.Handle:FindFirstChild("ReloadA") and not Tool.Handle:FindFirstChild("ReloadA_Clone_Server") then
+						local x = Tool.Handle.ReloadA:Clone()
+						x.Name = "ReloadA_Clone_Server"
+						x.Parent = Tool.Handle
+						game.Debris:AddItem(x,10)
+					end
+
+					local brk_m = 1
+					if  _G.LimbCheck(character,"Left Arm","Broken") then
+						brk_m = brk_m / 1.15
+					end
+					if _G.LimbCheck(character,"Right Arm","Broken") then
+						brk_m = brk_m / 1.15
+					end
+
+					if vF.Currents:FindFirstChild("RL_SPM") then
+						brk_m = brk_m * vF.Currents.RL_SPM.Value
+					end
+					
+					for _,v in pairs(Players:GetPlayers()) do
+						if v ~= player then
+							REMOTES.Effect:FireClient(v,"Reload",player,Tool,true,2,"R",brk_m)
+						end
+					end
+
+					--EFFECTS:Effect("Reload",player,Tool,false,2,brk_m)
+					return true
+				else
+					if guns[Tool] then
+						if code then
+							guns[Tool].Reloads[code] = nil
+						end
+						Tool.Values.Reloading.Value = false
+					end
+
+					local RL_TIME = _c2.ReloadTime
+
+					if vF.Currents:FindFirstChild("RL_SPM") then
+						RL_TIME = RL_TIME / vF.Currents.RL_SPM.Value
+					end
+
+					if guns[Tool].ReloadStart and (tick() + 0.2) - guns[Tool].ReloadStart >= RL_TIME then
+						local ammoToUse = math.min(_c2.MagSize - chosenAmmoValue.Value, chosenStoredAmmoValue.Value)
+
+						if _c2.Customs and _c2.Customs["SnowReload"] then
+							ammoToUse = _c2.MagSize
+						end
+
+						--if Tool.Name == "RPG-7" then
+						local _s,_e = pcall(function()
+							Tool.Parent.DisplayItems[Tool.Name].Parts.Torso.Model.Handle.Rocket.X.OriginTrans.Value = 0
+						end)
+
+						--if not _s then
+						--	warn(_e)
+						--end
+						--end
+
+						chosenAmmoValue.Value = chosenAmmoValue.Value + ammoToUse
+						chosenStoredAmmoValue.Value = chosenStoredAmmoValue.Value - ammoToUse
+						
+						local handle =	Tool:FindFirstChild(Config.HandleName or "Handle")
+
+						if _c2.RocketLauncherEnabled and handle and handle:FindFirstChild("Rocket") then
+							handle.Rocket.X.Transparency = 0
+							if handle.Rocket.X:FindFirstChild("Union") then
+								handle.Rocket.X.Union.Transparency = 0
+							end
+						end
+						
+						return true
+					else
+						warn("8.8",tostring(player),guns[Tool].ReloadStart and (tick() + 0.2) - guns[Tool].ReloadStart,RL_TIME)
+						return false,8.8
+					end
+				end
+			elseif mode == "CANZZELCULTUUUR" and gunTable.Reloads[code] or Tool.Values.Reloading.Value then
+				gunTable.Reloads[code] = nil
+				Tool.Values.Reloading.Value = false
+				return true
+			else
+				return false,9
+			end
+		else
+			return false,10
+		end
+	end
+
+	local success,num,noSync = Do()
+
+	if not success then
+		print("ERROR3: " .. player.Name .. ": 3_" .. tostring(num))
+
+		DoLatencyLog(player,Tool)
+
+		if not noSync and guns[Tool].DoSync then
+			guns[Tool].DoSync()
+		end
+
+		if SERVER_CONFIG.DoErrorMessage then
+			EVENTS.ClientWarn:FireClient(player,{"Error validating: code 3_" .. tostring(num),0.5,Color3.fromRGB(255, 121, 121),Color3.new(0,0,0),"lost"}) 
+		end
+	end
+end)
+
+local function GunUpdateFunc(player,Tool,mode,a1)
+	if not guns[Tool] or (guns[Tool] and (guns[Tool].Tool ~= Tool)) then return end
+	
+	local nTool = guns[Tool]
+	
+	local Config		= nTool.config
+	local Handle =	Tool:FindFirstChild(Config.HandleName or "Handle")
+	
+	if mode == "WindUp" and Config.MinigunEnabled and not Tool.Values.Winding.Value then	
+		for _,v in pairs(Players:GetPlayers()) do
+			if v ~= player then
+				REMOTES.Effect:FireClient(v,"Minigun", Tool,"WindUp",false)
+			end
+		end		
+
+		Tool.Values.Winding.Value = true
+
+		Handle.TriggerA_Server.WindDown:Stop()
+		Handle.TriggerA_Server.WindUp:Play()
+		task.delay(Handle.TriggerA_Server.WindUp.TimeLength - 0.1,function()
+			if Tool.Values.Winding.Value then
+				Handle.TriggerA_Server.SpinLoop:Play()
+			end
+		end)
+		Handle.Muzzle.FireLoop:Stop()
+	elseif mode == "WindDown" and Config.MinigunEnabled and Tool.Values.Winding.Value then
+		for _,v in pairs(Players:GetPlayers()) do
+			if v ~= player then
+				REMOTES.Effect:FireClient(v,"Minigun", Tool,"WindDown",false)
+			end
+		end	
+
+		Tool.Values.Winding.Value = false
+
+		Handle.TriggerA_Server.SpinLoop:Stop()
+		Handle.TriggerA_Server.WindUp:Stop()
+		Handle.TriggerA_Server.WindDown:Play()
+		if Handle.Muzzle.FireLoop.Playing then
+			Handle.Muzzle.FireLoop:Stop()
+			Handle.Muzzle.FireStop:Play()
+		end
+	elseif mode == "ChargeUp" and Config.ChargeUpEnabled then
+		Handle.TriggerA_Server.ChargeUp:Play()
+		Handle.TriggerA_Server.ChargeDown:Stop()
+	elseif mode == "ChargeDown" and Config.ChargeUpEnabled then
+		Handle.TriggerA_Server.ChargeUp:Stop()
+		Handle.TriggerA_Server.ChargeDown:Play()
+	elseif mode == "FireModeSwitch" and Config.FireModeSettings.CanSwitch then
+		if Handle.TriggerA_Server:FindFirstChild("FireModeSwitch") then
+			Handle.TriggerA_Server.FireModeSwitch:Play()
+		end
+	elseif mode == "Click" then
+		if Handle.TriggerA_Server:FindFirstChild("Empty") then
+			Handle.TriggerA_Server.Empty:Play()
+		end
+	elseif mode == "LaserSwitch" and Config.Customs and Config.Customs.LaserSight and Config.Customs.LaserSight == true and typeof(a1) == "boolean" then
+		--nTool.Customs["LaserM"]:Toggle(a1)
+
+		if Config.Customs.ScopeGlint then
+			local part = Tool.Attachments[Config.Customs.ScopeGlint.PartName]
+			part.Enabled.Value = a1
+			for _,v in pairs(Players:GetPlayers()) do
+				if v ~= player then
+					REMOTES.Effect:FireClient(v,"LaserHandler", Tool, a1,false)
+					REMOTES.Effect:FireClient(v,"ScopeGlint", part, a1,Config.Customs.ScopeGlint)
+				end
+			end	
+		end
+		
+		if Handle.TriggerA_Server:FindFirstChild("FireModeSwitch") then
+			Handle.TriggerA_Server.FireModeSwitch:Play()
+		end
+	elseif mode == "MStop" and Config.MinigunEnabled then
+		if Handle.Muzzle.FireLoop.Playing then
+			Handle.Muzzle.FireStop:Play()
+			Handle.Muzzle.FireStart:Stop()
+		end
+		Handle.Muzzle.FireLoop:Stop()
+	elseif mode == "ScopeGlint" and typeof(a1) == "boolean" and Config.Customs["ScopeGlint"] then
+		local part = Tool.Attachments[Config.Customs.ScopeGlint.PartName]
+		part.Enabled.Value = a1
+		for _,v in pairs(Players:GetPlayers()) do
+			if v ~= player then
+				REMOTES.Effect:FireClient(v,"ScopeGlint", part, a1,Config.Customs.ScopeGlint)
+			end
+		end				
+	elseif mode == "FirePump" and Config.ShotgunSettings and Config.ShotgunSettings.FirePump == true then
+		local extras = {}
+		extras.bulletType = (Config.BulletTypeChange and Config.BulletTypeChange.Enabled and Config.BulletTypeChange.M1) or nil
+
+		--print("S_FIrePump")
+
+		for _,v in pairs(Players:GetPlayers()) do
+			if v ~= player then
+				REMOTES.Effect:FireClient(v,"FirePump", player, true, Tool, extras)
+			end
+		end
+
+		--EFFECTS:Effect("FirePump", player, false, Tool, extras)
+	elseif mode == "ReloadEnd" and Config.ShotgunSettings and Config.ShotgunSettings.ShotgunReload then
+		local n = Config.ShotgunSettings.FinishPumpWait and Config.ShotgunSettings.FinishPumpWait or 0
+
+		--print("rend1")
+
+		if Tool:FindFirstChild("Handle") and Tool.Handle:FindFirstChild("ReloadA") and not Tool.Handle:FindFirstChild("ReloadA_Clone_Server") then
+			local x = Tool.Handle.ReloadA:Clone()
+			x.Name = "ReloadA_Clone_Server"
+			x.Parent = Tool.Handle
+			game.Debris:AddItem(x,5)
+		end
+
+		--print("rend2")
+
+		local brk_m = 1
+		if  _G.LimbCheck(player.Character,"Left Arm","Broken") then
+			brk_m = brk_m / 1.15
+		end
+		if _G.LimbCheck(player.Character,"Right Arm","Broken") then
+			brk_m = brk_m / 1.15
+		end
+
+		local vF = _G.GVF(player.Name)
+
+		if vF.Currents:FindFirstChild("RL_SPM") then
+			brk_m = brk_m * vF.Currents.RL_SPM.Value
+		end
+		
+		if Config.ShotgunSettings.ReloadEndSound then
+			for _,v in pairs(Players:GetPlayers()) do
+				if v ~= player then
+					REMOTES.Effect:FireClient(v,"Reload",player,Tool,nil,nil,brk_m)
+				--	REMOTES.Effect:FireClient(v,"Reload", player,Tool,true,1,"C")
+				end
+			end
+		end
+	
+
+		--EFFECTS:Effect("Reload",player,Tool,false,nil,brk_m)
+	elseif mode == "HTiltt" then
+		local db = player:GetAttribute("REPDBS_TILT") 
+		
+		if not db then
+			player:SetAttribute("REPDBS_TILT",0)
+		elseif db >= 20 then
+			return
+		end
+		player:SetAttribute("REPDBS_TILT",player:GetAttribute("REPDBS_TILT") + 1)
+		task.delay(3,function()
+			local db = player:GetAttribute("REPDBS_TILT") 
+			if db then
+				local n = db - 1
+				
+				if n <= 0 then
+					n = nil
+				end
+				player:SetAttribute("REPDBS_TILT",n)
+			end
+		end)
+		
+		if a1 then
+			if Config.AimSettings and Config.AimSettings.ADS_ArmsOffset then
+				player.Character.Humanoid:SetAttribute("G_ArmsOffset2",Config.AimSettings.ADS_ArmsOffset * CFrame.Angles(0,math.rad(2),0))
+				player.Character.Humanoid:SetAttribute("LA_ArmsOffset2",Config.AimSettings.ADS_ArmsOffset and Config.AimSettings.ADS_LArmOffset)
+			end
+		else
+			player.Character.Humanoid:SetAttribute("G_ArmsOffset2",nil)
+			player.Character.Humanoid:SetAttribute("LA_ArmsOffset2",nil)
+		end
+		
+		for _,v in pairs(Players:GetPlayers()) do
+			if v ~= player then
+				REMOTES.Effect:FireClient(v,"HeadTilt",player,Tool,Handle)
+			end
+		end
+		
+		--local scriptStuff = ReplicatedStorage.Storage.GunClient
+		--local s = scriptStuff.AimSounds:GetChildren()[math.random(1,#scriptStuff.AimSounds:GetChildren())]
+		--s:Play()
+	elseif mode == "CTiltt" then
+		local db = player:GetAttribute("REPDBS_TILT") 
+
+		if not db then
+			player:SetAttribute("REPDBS_TILT",0)
+		elseif db >= 20 then
+			return
+		end
+		player:SetAttribute("REPDBS_TILT",player:GetAttribute("REPDBS_TILT") + 1)
+		task.delay(3,function()
+			local db = player:GetAttribute("REPDBS_TILT") 
+			if db then
+				local n = db - 1
+
+				if n <= 0 then
+					n = nil
+				end
+				player:SetAttribute("REPDBS_TILT",n)
+			end
+		end)
+
+		if a1 then
+			if Config.AimSettings and Config.AimSettings.ADS_ArmsOffset then
+				player.Character.Humanoid:SetAttribute("G_ArmsOffset3",CFrame.new(0.15, 0.15,0.3) * CFrame.Angles(math.rad(25),0,0))
+				player.Character.Humanoid:SetAttribute("LA_ArmsOffset3",CFrame.new(0, -0.78,0.2))
+			end
+		else
+			player.Character.Humanoid:SetAttribute("G_ArmsOffset3",nil)
+			player.Character.Humanoid:SetAttribute("LA_ArmsOffset3",nil)
+		end
+	elseif mode == "ArmOffset" and Config.ArmsOffsetCF and Config.ArmsOffsetCF.Enabled then
+		player.Character.Humanoid:SetAttribute("G_ArmsOffset",(a1 and Config.ArmsOffsetCF.Offset) or nil)
+	end
+end
+
+REMOTES.GNX_U.OnServerEvent:connect(function(player, securityCode, Tool, mode,a1)
+	local Dt = getDt(player, tonumber(securityCode) or 0)
+
+	if Dt > SCM.MaxDt then
+		return
+	end	
+
+	if ShadowCheck(player) then
+		return
+	end
+
+	if typeof(Tool) ~= "Instance" or not Tool.Parent then
+		return
+	end
+
+	local playerTab = playerTabs[player]
+
+	if playerTab and playerTab.updateCount >= 30 then
+		return
+	end
+
+	if not CheckPlayer(Tool,player,2) then return false,"25" end
+
+	playerTabs[player].updateCount = playerTabs[player].updateCount + 1
+	local code = playerTab.currentTabCode
+	task.delay(5,function()
+		local playerTab = playerTabs[player]
+		if playerTab and playerTab.currentTabCode == code then
+			playerTab.updateCount = playerTab.updateCount - 1
+			playerTabs[player] = playerTab
+		end
+	end)
+
+	GunUpdateFunc(player,Tool,mode,a1)
+end)
+
+EVENTS3.AI_GunUpdate.Event:Connect(GunUpdateFunc)
+
+--function RefillTry(Player,securityCode,Tool,part)
+--	local Dt = getDt(Player, tonumber(securityCode) or 0)
+
+--	if Dt > SCM.MaxDt then
+--		return
+--	end	
+
+--	if guns[Tool] ~= Tool or (Tool.Parent ~= Player.Character and Tool.Parent.Parent ~= Player) then return end
+
+--	local Handle =		Tool.Handle
+--	local Config		= CONFIGS[Tool.Name]
+
+--	local StoredAmmo1 =	Tool.Values.SERVER_StoredAmmo
+--	local StoredAmmo2 =	Tool.Values.StoredAmmo
+
+--	if not (_G.CheckIfCan(Player.Character) and not _G.CheckIfFlinching(Player.Character)) then return false end
+
+--	local Char = Player.Character
+--	local HRP = Char:WaitForChild("HumanoidRootPart")
+
+--	if StoredAmmo1.Value < Config.StoredAmmo then
+--		if part and part.Parent and part.Name == "Main" and part.Parent.Name == "AmmoBox" then
+--			part.Refill:Play()
+--			StoredAmmo1.Value = Config.StoredAmmo
+--			StoredAmmo2.Value = StoredAmmo1.Value
+--		end
+--	end	
+
+--	return false
+--end
+--REMOTES.GZ_RF.OnServerInvoke = RefillTry
+
+
+NewGunEvent.Event:Connect(function(Tool)
+	if guns[Tool] then return end
+
+	local nTool = {}
+	nTool.Tool = Tool
+	nTool.Reloads = {}
+	nTool.Customs = {}
+	nTool.LastShotT = 0
+
+	nTool.Player = Tool.Parent.Parent
+
+	local config
+	local appliedSkin = Tool:GetAttribute("AppliedSkin")
+	
+	local clientConfig_INSTANCE
+	local shellModify_INSTANCE
+	local reloadModifier_INSTANCE
+	
+	local limitedHolder = Tool:GetAttribute("LimitedHolder") or nil
+	
+	if appliedSkin then
+		local customServerConfig = GetCustomSkinModule(Tool,CONFIGS[Tool.Name],appliedSkin)
+		if customServerConfig then
+			config = customServerConfig
+			
+			local customClientConfig,customClientConfigInstance = SkinsHandlerM.GetSkinCustomModule(appliedSkin,"ClientConfig",config,Tool)
+			if customClientConfig then
+				config = customClientConfig
+				
+				if customClientConfigInstance then
+					clientConfig_INSTANCE = customClientConfigInstance
+				end
+			end
+			
+			local shellModifyModule = SkinsHandlerM.GetSkinCustomModule(appliedSkin,"ShellModify",config,Tool)
+			if shellModifyModule then
+				shellModify_INSTANCE = shellModifyModule
+			end
+			
+			local reloadModifierModule = SkinsHandlerM.GetSkinCustomModule(appliedSkin,"ReloadModifier",config,Tool)
+			if reloadModifierModule then
+				reloadModifier_INSTANCE = reloadModifierModule
+			end
+		end
+	end
+	
+	if not config then
+		config = CONFIGS[Tool.Name]
+	end
+	nTool.config = config
+	nTool.config2 = config
+	
+	nTool.launcherEnabled = (config.GrenadeLauncherEnabled or config.RocketLauncherEnabled or (config.Customs and config.Customs.Snowball))
+	
+	nTool.hasUnderbarrelLauncher = config.Customs and config.Customs.UnderbarrelLauncher and config.Customs.UnderbarrelLauncher.Enabled
+	
+	guns[Tool] = nTool
+	
+	if config.Version and config.Version >= 2 then
+		Tool:SetAttribute("RELPART_T",true)
+	end
+	
+	local _handleName = config.HandleName or "Handle"
+	local Handle =	Tool:FindFirstChild(_handleName)
+	
+	local Values =  Instance.new("Folder")
+	Values.Name = "Values"
+
+	local nFlinch = Instance.new("BoolValue")
+	nFlinch.Name = "NoFlinchAnim"
+	nFlinch.Parent = Tool
+
+	local Ammo = Instance.new("IntConstrainedValue")
+	Ammo.Name = "Ammo"
+	Ammo.MaxValue = config.MagSize
+	Ammo.Parent = Values
+
+	local StoredAmmo = 	Ammo:Clone();StoredAmmo.Name = "StoredAmmo"
+	StoredAmmo.Parent = Values
+
+	local AimDown = Instance.new("BoolValue")
+	AimDown.Name = "AimDown"
+	AimDown.Parent = Values
+
+	local Reloading = Instance.new("BoolValue")
+	Reloading.Name = "Reloading"
+	Reloading.Parent = Values
+
+	local EquippedV = Instance.new("BoolValue")
+	EquippedV.Name = "Equipped"
+	EquippedV.Parent = Values
+
+	local isguN = Instance.new("BoolValue")
+	isguN.Name = "IsGun"
+	isguN.Parent = Tool
+
+	local fpV = Instance.new("CFrameValue")
+	fpV.Name = "FP_Offset2"
+	fpV.Parent = Tool
+
+
+	--if config.AimSettings and config.AimSettings.Offset then
+	--	local ADS_Offset = Instance.new("CFrameValue")
+	--	ADS_Offset.Name = "ADS_Offset"
+	--	ADS_Offset.Value = config.AimSettings.Offset
+	--	ADS_Offset.Parent = Tool
+	--end
+
+	local aimN = Instance.new("NumberValue")
+	aimN.Name = "AimNum"
+	aimN.Parent = Tool
+
+	local syncEvent = Instance.new("BindableEvent")
+	syncEvent.Name = "SyncEvent"
+	syncEvent.Parent = Values
+
+	local syncRemote = Instance.new("RemoteFunction")
+	syncRemote.Name = "SyncRemote"
+	syncRemote.Parent = Values
+
+	local comEvent = Instance.new("RemoteEvent")
+	comEvent.Name = "ComEvent"
+	comEvent.Parent = Values
+
+	local DisconnectEvent = Instance.new("RemoteFunction")
+	DisconnectEvent.Name = "DisconREMOTE"
+	DisconnectEvent.Parent = Tool
+
+	local HitmarkerEvent = Instance.new("BindableEvent")
+	HitmarkerEvent.Name = "Hitmarker"
+	HitmarkerEvent.Parent = Tool
+
+	local HitmarkerEvent2 = Instance.new("RemoteEvent")
+	HitmarkerEvent2.Name = "Hitmarker2"
+	HitmarkerEvent2.Parent = Tool
+
+	Values.Parent = Tool
+
+	local originalConfig = ToolModules.Guns[Tool.Name]:Clone()
+	originalConfig.Name = "Config"
+	
+	if clientConfig_INSTANCE then
+		clientConfig_INSTANCE.Name = "Addon"
+		clientConfig_INSTANCE:SetAttribute("LimitedHolder",limitedHolder)
+		clientConfig_INSTANCE.Parent = originalConfig
+	end
+	
+	if shellModify_INSTANCE then
+		shellModify_INSTANCE.Name = "ShellModifyM"
+		shellModify_INSTANCE.Parent = Tool
+		--shellModify_INSTANCE:SetAttribute("LimitedHolder",limitedHolder)
+		
+		--print("Yeah shell modify thing")
+		
+		Tool:SetAttribute("HasShellModifyM",true)
+	end
+	
+	if reloadModifier_INSTANCE then
+		reloadModifier_INSTANCE.Name = "ReloadModifierM"
+		reloadModifier_INSTANCE.Parent = Tool
+		--reloadModifier_INSTANCE:SetAttribute("LimitedHolder",limitedHolder)
+		Tool:SetAttribute("HasReloadModifierM",true)
+	end
+	
+	originalConfig.Parent = Tool
+
+	local amt = config.StoredAmmo
+	if amt == math.huge then amt = 1000000 end
+
+	StoredAmmo.MaxValue = amt
+
+	local amt2 = amt
+	if Tool:GetAttribute("TakeStoredAmmoPerc") and typeof(Tool:GetAttribute("TakeStoredAmmoPerc")) == "number" then
+		amt2 *= math.min(Tool:GetAttribute("TakeStoredAmmoPerc"),1)
+		amt2 = math.floor(amt2)
+		amt2 = math.max(amt2,0)
+	end
+
+	StoredAmmo.Value = amt2
+
+	if config.StartFull then
+		local mag = config.MagSize
+
+		if Tool:GetAttribute("TakeAmmoPerc") and typeof(Tool:GetAttribute("TakeAmmoPerc")) == "number" then
+			mag *= math.min(Tool:GetAttribute("TakeAmmoPerc"),1)
+			mag = math.floor(mag)
+			mag = math.max(mag,0)
+		end
+
+		Ammo.Value = mag
+	end
+
+	local SERVER_Ammo = Ammo:Clone()
+	SERVER_Ammo.Name = "SERVER_Ammo"
+	SERVER_Ammo.Parent = Values
+
+	local SERVER_StoredAmmo = StoredAmmo:Clone()
+	SERVER_StoredAmmo.Name = "SERVER_StoredAmmo"
+	SERVER_StoredAmmo.Parent = Values
+		
+	local Ammo2,StoredAmmo2,SERVER_Ammo2,SERVER_StoredAmmo2
+	
+	if config.Customs and config.Customs.UnderbarrelLauncher then
+		Ammo2 = Instance.new("IntConstrainedValue")
+		Ammo2.Name = "Ammo2"
+		Ammo2.MaxValue = config.Customs.UnderbarrelLauncher.MagSize
+		
+		if config.StartFull then
+			local mag = config.Customs.UnderbarrelLauncher.MagSize
+
+			if Tool:GetAttribute("TakeAmmoPerc") and typeof(Tool:GetAttribute("TakeAmmoPerc")) == "number" then
+				mag *= math.min(Tool:GetAttribute("TakeAmmoPerc"),1)
+				mag = math.floor(mag)
+				mag = math.max(mag,0)
+			end
+
+			Ammo2.Value = mag
+		end
+		
+		Ammo2.Parent = Values
+
+		StoredAmmo2 = 	Ammo2:Clone();StoredAmmo2.Name = "StoredAmmo2"
+		
+		StoredAmmo2.MaxValue = config.Customs.UnderbarrelLauncher.StoredAmmo
+		StoredAmmo2.Value = StoredAmmo2.MaxValue
+		
+		StoredAmmo2.Parent = Values
+		
+		SERVER_Ammo2 = Ammo2:Clone()
+		SERVER_Ammo2.Name = "SERVER_Ammo2"
+		SERVER_Ammo2.Parent = Values
+
+		SERVER_StoredAmmo2 = StoredAmmo2:Clone()
+		SERVER_StoredAmmo2.Name = "SERVER_StoredAmmo2"
+		SERVER_StoredAmmo2.Parent = Values
+	end
+
+	local TriggerA = Handle.TriggerA:Clone()
+	TriggerA.Name = "TriggerA_Server"
+	TriggerA.Parent = Handle
+
+	if config.Customs and config.Customs.LaserSight then
+		--local lm = require(Tool:WaitForChild("LaserM"):Clone())
+		--lm:SetUp(config,false)
+		--nTool.Customs["LaserM"] = lm
+	end
+
+	if config.MinigunSettings and config.MinigunEnabled then
+		local wv = Instance.new("BoolValue")
+		wv.Name = "Winding"
+		wv.Parent = Values
+	end
+
+	local equipped = false
+
+	local con1,con2,con3
+	local disconnected = false
+
+	nTool.Values = Values
+
+	nTool.DoSync = function()
+		local plr = Players:FindFirstChild(Tool.Parent.Name) or Tool.Parent.Parent
+
+		Ammo.Value = SERVER_Ammo.Value
+		StoredAmmo.Value = SERVER_StoredAmmo.Value
+		
+		if Ammo2 and SERVER_Ammo2 then
+			Ammo2.Value = SERVER_Ammo2.Value
+		end
+		if StoredAmmo2 and SERVER_StoredAmmo2 then
+			StoredAmmo2.Value = SERVER_StoredAmmo2.Value
+		end
+
+		if plr:IsA("Player") then
+			if limitedHolder and Tool:GetAttribute("AppliedSkin") then
+				if plr.Name == limitedHolder then
+					nTool.config = nTool.config2
+				else
+					nTool.config = CONFIGS[Tool.Name]
+				end
+			end
+			
+			nTool.Player = plr
+			comEvent:FireClient(plr,"Sync")
+		end
+	end
+
+	syncEvent.Event:Connect(nTool.DoSync)
+	syncRemote.OnServerInvoke = function(Player)
+		local plr = Players:FindFirstChild(Tool.Parent.Name) or Tool.Parent.Parent
+
+		if Tool.Parent.Parent == Player or Tool.Parent == Player.Character then
+			return {SERVER_Ammo.Value,SERVER_StoredAmmo.Value}
+		end
+	end
+
+	local function disconnect()
+		if disconnected then return end
+
+		disconnected = true
+
+		sCodes[Tool] = nil
+		guns[Tool] = nil
+
+		--if nTool.Customs["LaserM"] then
+		--	nTool.Customs["LaserM"]:Disconnect()
+		--end
+		
+		for i,v in pairs(nTool.Customs) do
+			nTool.Customs[i] = nil
+		end
+
+		config = nil
+		--			cancels[Tool] = nil
+		--			reloadcodes[Tool] = nil
+
+		con1:Disconnect()
+		con2:Disconnect()
+		con3:Disconnect()
+
+		pcall(function()
+			game.Debris:AddItem(Tool,0.1)
+			wait(0.1)
+			Tool:ClearAllChildren()
+			Tool:Destroy()
+		end)
+	end
+
+	Values.AncestryChanged:Connect(function(_,parent)
+		if not parent then 
+			disconnect()
+		end
+	end)
+
+	Values.DescendantRemoving:Connect(function(d)
+		if d.Name == "SERVER_StoredAmmo" or d.Name == "SERVER_Ammo" then
+			disconnect()
+		end
+	end)
+
+	local equipTime = 0
+	local equipCount = 0
+	
+	local currentPlayer = Players:FindFirstChild(Tool.Parent.Name) or Tool.Parent.Parent
+
+	con1 = Tool.Equipped:Connect(function()
+		--		if tick() - equipTime < 0.1 then return end
+		--		equipTime = tick()
+
+		equipCount = equipCount + 1
+		task.delay(0.5,function()
+			equipCount = equipCount - 1
+		end)
+		if equipCount >= 10 then
+			game.ServerStorage.Events3.qUE_exPOTLOG:Fire("ZKLFXG890ZDFGJKN43SU8IOG",tostring(Tool.Parent),"Server tamper: " .. "Attempted to spam equip item: '" .. tostring(Tool) .. "' (x" .. tostring(equipCount) .. ")",1,true)
+			disconnect()
+			return
+		end
+
+		m6dhandler(Tool,Handle,Tool.Parent,config,true)
+		
+		equipped = true
+
+		if _G.CheckIfCan and not _G.CheckIfCan(Tool.Parent) then return end
+
+		if TriggerA.Parent and TriggerA:FindFirstChild("EquipSound") then
+			TriggerA.EquipSound:Play()
+		end
+
+		if Handle.Parent and Handle:FindFirstChild("ReloadA") then
+			local x = Handle.ReloadA:Clone()
+			x.Name = "EquipA_Clone_Server" 
+			x.Parent = Handle
+			game.Debris:AddItem(x,10)
+		end
+
+		if equipped then
+			local brk_m = 1
+			if _G.LimbCheck(Tool.Parent,"Left Arm","Broken") then
+				brk_m = brk_m / 1.15
+			end
+			if _G.LimbCheck(Tool.Parent,"Right Arm","Broken") then
+				brk_m = brk_m / 1.15
+			end
+
+			local vF = _G.GVF(Tool.Parent.Name)
+
+			if vF.Currents:FindFirstChild("RL_SPM") then
+				brk_m = brk_m * vF.Currents.RL_SPM.Value
+			end
+			
+			local player = Players:FindFirstChild(Tool.Parent.Name)
+			
+			if Tool:GetAttribute("HasKilltrack") and Tool:GetAttribute("ID") then
+				local ID = Tool:GetAttribute("ID")
+				if Tool:GetAttribute(player.Name) then
+					local dataBase = _G.DataBase_000[player]
+					for __, v in pairs(dataBase.playerData.Cosmetics.Skins) do
+						if __ then
+							if tostring(__) == tostring(ID) then
+								local UptKilltrack = require(game:GetService("ServerStorage").Modules.UpdateKilltrack) UptKilltrack(Tool, v.KilltrackCT)
+							end
+						end
+					end
+				else
+					local UptKilltrack = require(game:GetService("ServerStorage").Modules.UpdateKilltrack) UptKilltrack(Tool, "FRAUD")
+				end
+			end
+			
+			--if config.ArmsOffsetCF then
+			--	task.delay(0,function()
+			--		if equipped then
+			--			player.Character.Humanoid:SetAttribute("G_ArmsOffset",config.ArmsOffsetCF)
+			--		end
+			--	end)
+			--end
+
+			for _,v in pairs(Players:GetPlayers()) do
+				if v ~= player then
+					REMOTES.Effect:FireClient(v,"Equip",nil,Tool,true,brk_m)
+				end
+			end
+			--EFFECTS:Effect("Equip",nil,Tool,false,brk_m)
+		end
+	end)
+
+	con2 = Tool.Unequipped:Connect(function()
+		equipped = false
+		if TriggerA and TriggerA.Parent and TriggerA:FindFirstChild("EquipSound") then
+			TriggerA.EquipSound:Stop()
+		end
+
+		if config and config.MinigunEnabled and Handle.Muzzle.FireLoop.Playing then
+			Handle.Muzzle.FireLoop:Stop()
+			Handle.Muzzle.FireStop:Play()
+		end
+
+		--if currentPlayer and config.ArmsOffsetCF and currentPlayer.Character and currentPlayer:FindFirstChild("Humanoid") then
+		--	currentPlayer.Character.Humanoid:SetAttribute("G_ArmsOffset",nil)
+		--end
+	end)
+
+	local removeC = 0
+
+	local x = nil
+
+	local lParent
+
+	con3 = Tool.AncestryChanged:Connect(function(_,Parent)
+		local dS = false
+		if not Parent or (Parent ~= ServerStorage.HoldingTools and Parent.Name ~= "Backpack" and not Parent:FindFirstChild("Humanoid")) then
+			disconnect()
+		elseif Parent then
+			local gPlr = Players:FindFirstChild(Tool.Parent.Name) or Tool.Parent.Parent
+			if gPlr then
+				dS = true
+				if gPlr ~= currentPlayer then
+					currentPlayer = gPlr
+					nTool.DoSync()
+				end
+			end
+		end
+		
+		if not dS and Tool:GetAttribute("LimitedHolder") then
+			nTool.config = CONFIGS[Tool.Name]
+		end
+	end)
+end)
+
+function NewPlayer(Player)
+	playerTabs[Player] = deepCopy(defaultPlayerTab)
+
+	local function newChar(char)
+		wait()
+		if not (char and char.Parent) then return end
+
+		local c = math.random()
+
+		local hum = char:WaitForChild("Humanoid")
+		playerTabs[Player].alive = true
+		playerTabs[Player].currentTabCode = math.random()
+		playerTabs[Player].shots = {}
+
+		hum.Died:Connect(function()
+			local t = char:FindFirstChildOfClass("Tool")
+			if t and guns[t] and t:FindFirstChild("Handle") and t.Handle:FindFirstChild("ReloadA_Clone_Server") then
+				t.Handle["ReloadA_Clone_Server"]:Destroy()
+			end
+			--wait(0.3)
+			if playerTabs[Player] then
+				playerTabs[Player].alive = false
+			end
+			wait(1)
+			if playerTabs[Player] then
+				playerTabs[Player].shots = {}
+			end
+
+		end)
+	end
+
+	Player.CharacterAdded:Connect(newChar)
+	newChar()
+end
+
+Players.PlayerAdded:Connect(NewPlayer)
+for _,v in pairs(Players:GetPlayers()) do
+	NewPlayer(v)
+end
+
+Players.PlayerRemoving:Connect(function(player)
+	playerTabs[player] = nil
+end)
