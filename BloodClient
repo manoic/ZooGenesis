@@ -1,0 +1,387 @@
+--34GKB8495GJNNJR44FV
+local TS = 					game:GetService("TweenService")
+local ReplicatedStorage =	game:GetService("ReplicatedStorage")
+local RunService = 			game:GetService("RunService")
+local DebrisService = 		game:GetService("Debris")
+
+local BS = ReplicatedStorage:WaitForChild("Storage"):WaitForChild("BloodStuff")
+local BS_ORIG = 	BS["BloodSpray"]:Clone()
+local BP_ORIG = 	BS["BloodPool"]:Clone()
+local BH_ORIG1 = 	BS["BloodHit1"]:Clone()
+local BH_ORIG2 = 	BS["BloodHit2"]:Clone()
+local BH_ORIG3 = 	BS["BloodHit3"]:Clone()
+
+local DebrisF = workspace:WaitForChild("Debris")
+local Camera = workspace.Camera
+
+local Player = game.Players.LocalPlayer
+
+local SettingsChangedEvent = ReplicatedStorage.Events2:WaitForChild("SettingsChanged")
+
+local RayHandler = require(ReplicatedStorage:WaitForChild("Modules").RayHandler)
+
+local Settings = {
+	BT_X_Min = -10; -- Rotation
+	BT_X_Max = 10;
+	BT_Y_Min = -10;
+	BT_Y_Max = 10;
+	
+	BP_S_Min = 1; -- Size
+	BP_S_Max = 2;
+	
+	BP_T_Min = 0.2; --Transparency
+	BP_T_Max = 0.3;
+	
+	BP_GT_Min = 1.5; --Grow time
+	BP_GT_Max = 2;
+	
+	BP_ET_Min = 5; --Expire time
+	BP_ET_Max = 7;
+	
+	MaxBloodInstances = 300;
+	BloodLoadMaxDist = 400;
+}
+
+local Events = ReplicatedStorage:WaitForChild("Events")
+	local BloodTrailEvent = Events:WaitForChild("BloodTrailEvent")
+	local BloodHitEvent = 	Events:WaitForChild("BloodHitEvent")
+
+local GorePartEvent = Events:WaitForChild("GorePart")
+local BloodOnPartEvent = Events:WaitForChild("BloodOnPart")
+	
+local Events2 = ReplicatedStorage:WaitForChild("Events2")
+	local BloodTrailEvent2 = Events2:WaitForChild("BloodTrailEvent")
+	local BloodHitEvent2 = 	Events2:WaitForChild("BloodHitEvent")
+
+local bloodInstances = Instance.new("Folder",DebrisF)
+bloodInstances.Name = "BloodInstances"
+
+local mIG = {workspace:WaitForChild("Filter",1000);workspace:WaitForChild("Debris") ;workspace.Characters;workspace.Map.Security;workspace.Map.BredMakurz}
+
+local actives = {}
+
+local function OverloadCheck()
+	if #bloodInstances:GetChildren() >= Settings.MaxBloodInstances  then 
+		return true
+	end
+	return false
+end
+
+local deepCopy = require(ReplicatedStorage.Modules.DeepCopy)
+
+local ig = deepCopy(mIG)
+
+local function Raycast(blood,lastPos)	
+	local ray = Ray.new(lastPos, (blood.Position - lastPos) * 1.25,false,true)
+
+	local obj, pos, normal = workspace:FindPartOnRayWithIgnoreList(ray, ig)
+
+	if obj and (obj.Transparency > 0.9 or obj.Name == "Grinder") then 
+		table.insert(ig,obj)
+		return Raycast(blood,lastPos)
+	end
+
+	return obj,pos,normal
+end
+
+local function CreateBlood(Attachment,Speed,spread,Size,widthSize,Upvector,sizeMulti,customColor)
+	local cMag = (Attachment.WorldCFrame.p - Camera.CFrame.p).Magnitude
+	if cMag > Settings.BloodLoadMaxDist or OverloadCheck() then return end
+	
+	Speed = Speed or 10
+	Upvector = Upvector or Vector3.new(0,0,0)
+	
+	if sizeMulti and typeof(sizeMulti) == "table" and sizeMulti[1] and sizeMulti[2] then
+		Size = Size * math.random(sizeMulti[1] * 100,sizeMulti[2] * 100) / 100
+	end
+	
+	local landed = false
+
+	local bloodtrail = BS_ORIG:Clone()
+	bloodtrail.Trail.WidthScale = NumberSequence.new(widthSize)
+	
+	if customColor then
+		local newC = Color3.fromRGB(customColor.R * 0.6,customColor.G * 0.6,customColor.B * 0.6)
+		bloodtrail.ParticleEmitter.Color = ColorSequence.new(newC)
+		bloodtrail.Trail.Color = ColorSequence.new(newC)
+	end
+	
+	if _G.Y8OTOP then
+		local newC = Color3.fromRGB(255,255,255)
+		bloodtrail.ParticleEmitter.Color = ColorSequence.new(newC)
+		bloodtrail.ParticleEmitter.LightEmission = 1
+		
+		bloodtrail.Trail.Color = ColorSequence.new(newC)
+		bloodtrail.Trail.LightEmission = 1
+	end
+	
+	bloodtrail.Parent = bloodInstances
+	
+	local bO = Attachment
+	
+	local origCF = bO.WorldCFrame
+	local CF = origCF * CFrame.Angles(math.rad(math.random(spread[1],spread[2])),math.rad(math.random(spread[1],spread[2])),0)
+	bloodtrail.CFrame = CF
+	
+	local Vel = (CF.LookVector * math.random(Speed * 0.8,Speed * 1.2)) + Upvector
+	bloodtrail.Velocity = Vel
+	
+--	local Grav = Instance.new("BodyForce",bloodtrail)
+--	Grav.Force = Vector3.new(0,workspace.Gravity * 0.05,0)
+	
+	DebrisService:AddItem(bloodtrail,10)
+	
+	if Size > 1 then
+		Size = Size * math.random(350,1000) / 1000
+		Size = math.max(Size,1)
+	end
+	
+	local function removeFromTable()
+		for i,v in pairs(actives) do
+			if v and typeof(v) == "table" and v[1] == bloodtrail then
+				table.remove(actives,i)
+				break
+			end
+		end		
+	end
+	
+	local function Land(hit,position,normal)
+		if landed then return end
+		
+		removeFromTable()
+			
+		landed = true
+		bloodtrail.Anchored = true
+		bloodtrail.Trail.Enabled = false
+		bloodtrail.ParticleEmitter.Enabled = false
+		
+		local bloodpool = BP_ORIG:Clone()
+		if customColor then
+			bloodpool.Color = customColor
+		end
+		DebrisService:AddItem(bloodpool,60)
+		bloodpool.Parent = bloodInstances
+		bloodpool.CFrame = CFrame.new(position,position + normal)
+		
+		if (hit and not hit.Anchored) then
+			local w = Instance.new("ManualWeld")
+			w.Part0 = hit
+			w.Part1 = bloodpool
+			w.C0 = hit.CFrame:inverse()*CFrame.new(hit.Position)
+			w.C1 = bloodpool.CFrame:inverse()*CFrame.new(hit.Position)
+			w.Parent = bloodpool
+			bloodpool.Anchored = false
+		else
+			bloodpool.Anchored = true
+		end
+				
+		bloodtrail:Destroy()
+			
+		local CS = math.random(Size * 100 * 0.8,Size * 100 * 1.2) / 100
+		
+		local t = (math.random(Settings.BP_GT_Min,Settings.BP_GT_Max))
+		TS:Create(bloodpool.Mesh,TweenInfo.new(t / 2,Enum.EasingStyle.Linear,Enum.EasingDirection.Out),{Scale = Vector3.new(1,1,1)}):Play()	
+		TS:Create(bloodpool,TweenInfo.new(t,Enum.EasingStyle.Linear,Enum.EasingDirection.Out),{Size = Vector3.new(CS,CS,0.1);Transparency = math.random(Settings.BP_T_Min,Settings.BP_T_Max)}):Play()
+
+		local WaitTime = CS * 8
+		delay(math.random(WaitTime * 0.9,WaitTime * 1.1),function()
+			DebrisService:AddItem(bloodpool,3)	
+			local Tween = TS:Create(bloodpool,TweenInfo.new(3,Enum.EasingStyle.Quad,Enum.EasingDirection.Out),{Transparency = 1})
+			Tween:Play()
+		end)
+	end
+	
+	table.insert(actives,{bloodtrail,Land})
+	
+	local con
+	con = bloodtrail.AncestryChanged:Connect(function(_,parent)
+		if not parent then
+			con:Disconnect()
+			removeFromTable()
+		end
+	end)
+end
+
+local function BloodTrailFunc(Attachment,BS,isDic,sizeMulti)
+	if _G.GSettings and not _G.GSettings.BloodPools then return end
+	if not (Attachment and Attachment.Parent) then return end
+	if OverloadCheck() then return end
+	local cMag = (Attachment.WorldCFrame.p - Camera.CFrame.p).Magnitude
+	if cMag > Settings.BloodLoadMaxDist or OverloadCheck() then return end
+	
+	local amount,speed,spread,size,widthScale,upVector,repeatCount,repeatTick,customColor
+	
+	if not isDic then
+		amount = 		BS[1]
+		speed =			BS[2]
+		spread =		BS[3]
+		size =			BS[4]
+		widthScale =	BS[5]
+		upVector =		BS[6]
+		repeatCount =	BS[7]
+		repeatTick = 	BS[8]
+		customColor = 	BS[9]
+	else
+		amount = 		BS["Amount"]
+		speed =			BS["Speed"]
+		spread =		BS["Spread"]
+		size =			BS["Size"]
+		widthScale =	BS["WidthScale"]
+		upVector =		BS["UpVector"]
+		repeatCount =	BS["RepeatCount"]
+		repeatTick = 	BS["RepeatTick"]
+		customColor = 	BS["CustomColor"]
+	end
+	
+	local active = true
+	local aCON
+	aCON = Attachment.AncestryChanged:Connect(function(_,parent)
+		if not parent then
+			aCON:Disconnect()
+			active = false
+			aCON = nil
+		end
+	end)
+	
+	for i = 1,repeatCount do
+		if OverloadCheck() then break end
+		if active then
+			for i = 1,math.random(amount[1],amount[2]) do
+				if not OverloadCheck() and active then
+					coroutine.wrap(function()
+						CreateBlood(Attachment,speed,spread,size,widthScale,upVector,sizeMulti,customColor)
+					end)()
+					
+					RunService.RenderStepped:Wait()
+				else
+					break
+				end
+			end
+		else
+			break
+		end
+		
+		wait(repeatTick)
+	end
+	
+	if aCON then
+		aCON:Disconnect()
+	end
+end
+
+local function BloodHitFunc(Attachment,multi)
+	if _G.GSettings and not _G.GSettings.BloodEffects then return end
+--	local bH1 = BH_ORIG1:Clone()
+--	bH1.Parent = Attachment
+--	bH1:Emit(math.random(25,50))
+--	game.Debris:AddItem(bH1,1)
+--	
+--	local bH2 = BH_ORIG2:Clone()
+--	bH2.Parent = Attachment
+--	bH2:Emit(math.random(150,200))
+	--	game.Debris:AddItem(bH2,1)
+	
+	if typeof(multi) ~= "number" then
+		multi = 1
+	end
+	multi = math.max(multi,0.1)
+	multi = math.min(multi,5)
+
+
+	local bH3 = BH_ORIG3:Clone()
+	DebrisService:AddItem(bH3,1.5)
+
+	if multi ~= 1 then
+		local t = bH3.Size.Keypoints
+		
+		local nt = {}
+		for i,v in pairs(t) do
+			local z = NumberSequenceKeypoint.new(v.Time,v.Value * multi,v.Envelope * multi)
+			table.insert(nt,z)
+		end
+		
+		bH3.Size = NumberSequence.new{unpack(nt)}
+	end
+	
+	bH3.Parent = Attachment
+	bH3:Emit(math.random(10,20))
+		
+end
+
+local function BloodOnPartFunc(parts,decals,transMod,decay)
+	if _G.GSettings and not _G.GSettings.BloodPools then return end
+	
+	for _,p in pairs(parts) do
+		local d = decals[p]
+		if d then
+			d.Transparency = d.Transparency * transMod
+			d.Parent = p
+			delay(decay,function()
+				if d and d.Parent then
+					TS:Create(d,TweenInfo.new(3,Enum.EasingStyle.Quad,Enum.EasingDirection.InOut),{Transparency = 1}):Play()
+					game.Debris:AddItem(d,3)
+				end
+			end)
+		end
+	end
+end
+
+local function GorePartFunc(character,gores)
+	if _G.GSettings and not _G.GSettings.Gore then
+		RunService.Heartbeat:Wait()
+		for _,x in pairs(gores) do
+			x:ClearAllChildren()
+		end
+	end
+end
+
+BloodTrailEvent.OnClientEvent:Connect(BloodTrailFunc)
+BloodHitEvent.OnClientEvent:Connect(BloodHitFunc)
+
+BloodTrailEvent2.Event:Connect(BloodTrailFunc)
+BloodHitEvent2.Event:Connect(BloodHitFunc)
+
+GorePartEvent.OnClientEvent:Connect(GorePartFunc)
+BloodOnPartEvent.OnClientEvent:Connect(BloodOnPartFunc)
+
+SettingsChangedEvent.Event:Connect(function(arg1,arg2)
+	if arg1 == "BloodPools" and not arg2 then
+		actives = {}
+		bloodInstances:ClearAllChildren()
+	end
+end)
+
+RunService.Heartbeat:Connect(function()
+	for i,v in pairs(actives) do
+		if v then
+			local blood =	v[1]
+			local func =	v[2]
+			local lastPos = v[3]
+			
+			if not lastPos then lastPos = blood.Position end
+			
+			if not (blood and blood.Parent and blood:FindFirstChild("cPos")) or not blood.Parent:FindFirstChild(blood.Name) then
+				table.remove(actives,i)
+				return
+			end
+			
+			local WorldPositionOfRelative = blood and blood.Position + blood.CFrame:VectorToWorldSpace(blood.cPos.WorldPosition)
+			local ray = Ray.new(
+				lastPos, 
+				WorldPositionOfRelative and WorldPositionOfRelative 
+				or blood.pos.WorldPosition - lastPos
+			)
+			
+			local obj, pos, normal = Raycast(blood,lastPos)
+
+			if obj then
+				func(obj,pos,normal)
+				table.remove(actives,i)
+			end
+			
+			v[3] =  blood.Position
+		else
+			table.remove(actives,i)
+		end
+	end
+end)
